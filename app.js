@@ -134,7 +134,9 @@ const SYSTEM_PROMPT = `
 ${STYLE_BOOK}
 出力は必ず上記スキーマのJSONのみ。説明文は出力しない。`;
 
-// =================== 5) 五种风格渲染（更像你的样例；不画人物） ===================
+// =================== 5) 五种风格渲染（更像你的样例；不画人物；柔和色 & 加大行距） ===================
+
+// === 1) 注意（黄）— 行距加大 + 柔和黄 + 更淡斜纹 ===
 function drawCaution(spec){
   ctx.fillStyle="#fff"; ctx.fillRect(0,0,canvas.width,canvas.height);
 
@@ -145,239 +147,55 @@ function drawCaution(spec){
   ctx.save(); ctx.shadowColor="rgba(0,0,0,.08)"; ctx.shadowBlur=24; ctx.shadowOffsetY=10;
   ctx.fillStyle="#fff"; roundRect(ctx,x,y,w,h,26,true,false); ctx.restore();
 
-  // 黄底渐变 + 粗斜纹
+  // 更柔和的黄 + 更淡的斜纹
   const inPad = Math.round(Math.min(w,h)*0.06);
   const ix=x+inPad, iy=y+inPad, iw=w-inPad*2, ih=h-inPad*2;
   const grad = ctx.createLinearGradient(ix,iy, ix, iy+ih);
-  grad.addColorStop(0, "#f9d24a"); grad.addColorStop(1, "#f7c83a");
+  grad.addColorStop(0, "#f7de88");  // softer top
+  grad.addColorStop(1, "#f6d66e");  // softer bottom
   ctx.fillStyle = grad; roundRect(ctx,ix,iy,iw,ih,20,true,false);
 
-  ctx.save(); ctx.fillStyle = stripePattern("#000", "rgba(0,0,0,0)"); ctx.globalAlpha=0.20;
+  ctx.save(); ctx.fillStyle = stripePattern("#000", "rgba(0,0,0,0)"); ctx.globalAlpha=0.14; // 更淡
   roundRect(ctx,ix+16,iy+16,iw-32,ih-32,16,true,false); ctx.restore();
 
-  // 文案（居中 + 字距）
+  // 文案（增大行距；稍减字距）
   const cx = x + w/2;
   const tSize = Math.round(ih*0.19);
   const sSize = Math.round(ih*0.10);
   const eSize = Math.round(ih*0.085);
-  const trackTitle = Math.max(2, Math.round(tSize*0.03));
-  const trackSub   = Math.max(1, Math.round(sSize*0.03));
-  const trackEn    = Math.max(1, Math.round(eSize*0.025));
+  const trackTitle = Math.max(2, Math.round(tSize*0.020)); // ↓ 由 0.03 调柔
+  const trackSub   = Math.max(1, Math.round(sSize*0.018));
+  const trackEn    = Math.max(1, Math.round(eSize*0.018));
 
-  ctx.fillStyle="#111"; ctx.textAlign="center";
+  ctx.fillStyle="#1a1a1a"; ctx.textAlign="center";
   ctx.font=`800 ${tSize}px 'Noto Sans JP'`;
-  wrapCenterTracked(ctx, spec.title||"通行注意", cx, iy + Math.round(ih*0.30), Math.round(iw*0.88), Math.round(tSize*1.15), trackTitle);
+  wrapCenterTracked(ctx, spec.title||"通行注意", cx, iy + Math.round(ih*0.30), Math.round(iw*0.86), Math.round(tSize*1.26), trackTitle);
 
   ctx.font=`700 ${sSize}px 'Noto Sans JP'`;
-  wrapCenterTracked(ctx, spec.subtitle||"走行車両あり。周囲確認を徹底。", cx, iy + Math.round(ih*0.50), Math.round(iw*0.90), Math.round(sSize*1.25), trackSub);
+  wrapCenterTracked(ctx, spec.subtitle||"走行車両あり。周囲確認を徹底。", cx, iy + Math.round(ih*0.52), Math.round(iw*0.88), Math.round(sSize*1.34), trackSub);
 
   if(spec.en){
-    ctx.fillStyle="#222"; ctx.font=`600 ${eSize}px 'Noto Sans JP'`;
-    wrapCenterTracked(ctx, spec.en, cx, iy + Math.round(ih*0.68), Math.round(iw*0.86), Math.round(eSize*1.20), trackEn);
+    ctx.fillStyle="#2a2a2a"; ctx.font=`600 ${eSize}px 'Noto Sans JP'`;
+    wrapCenterTracked(ctx, spec.en, cx, iy + Math.round(ih*0.70), Math.round(iw*0.84), Math.round(eSize*1.30), trackEn);
   }
 }
 
+// === 2) 禁止（红）— 行距加大 + 柔和红 + 更淡斜纹 ===
 function drawProhibit(spec){
   ctx.fillStyle="#fff"; ctx.fillRect(0,0,canvas.width,canvas.height);
   const pad = Math.round(Math.min(canvas.width, canvas.height) * 0.06);
   const x=pad,y=pad,w=canvas.width-pad*2,h=canvas.height-pad*2;
 
-  // 白卡
   ctx.save(); ctx.shadowColor="rgba(0,0,0,.08)"; ctx.shadowBlur=24; ctx.shadowOffsetY=10;
   ctx.fillStyle="#fff"; roundRect(ctx,x,y,w,h,26,true,false); ctx.restore();
 
-  // 红底渐变 + 白斜纹
   const inPad = Math.round(Math.min(w,h)*0.06);
   const ix=x+inPad, iy=y+inPad, iw=w-inPad*2, ih=h-inPad*2;
   const grad = ctx.createLinearGradient(ix,iy, ix, iy+ih);
-  grad.addColorStop(0, "#cf3a3a"); grad.addColorStop(1, "#c62828");
+  grad.addColorStop(0, "#d95a5a");  // softer top red
+  grad.addColorStop(1, "#cf4444");  // softer bottom red
   ctx.fillStyle=grad; roundRect(ctx,ix,iy,iw,ih,20,true,false);
 
-  ctx.save(); ctx.fillStyle = stripePattern("#fff", "rgba(0,0,0,0)"); ctx.globalAlpha=0.27;
-  roundRect(ctx,ix+18,iy+18,iw-36,ih-36,16,true,false); ctx.restore();
+  ctx.save(); ctx.fillStyle = stripePattern("#fff", "rgba(0,0,0,0)"); ctx.globalAlpha=0.20; // ↓ 由 0.27
+  roundRect(ctx,ix+18,iy+18,iw-36,ih-36,16,
 
-  // 文案（白字 + 字距）
-  const cx = x + w/2;
-  const tSize = Math.round(ih*0.19);
-  const sSize = Math.round(ih*0.095);
-  const eSize = Math.round(ih*0.085);
-  const trackTitle = Math.max(2, Math.round(tSize*0.03));
-  const trackSub   = Math.max(1, Math.round(sSize*0.03));
-  const trackEn    = Math.max(1, Math.round(eSize*0.025));
-
-  ctx.fillStyle="#fff"; ctx.textAlign="center";
-  ctx.font=`800 ${tSize}px 'Noto Sans JP'`;
-  wrapCenterTracked(ctx, spec.title||"仮置き禁止", cx, iy + Math.round(ih*0.30), Math.round(iw*0.88), Math.round(tSize*1.15), trackTitle);
-
-  ctx.font=`600 ${sSize}px 'Noto Sans JP'`;
-  wrapCenterTracked(ctx, spec.subtitle||"この範囲に物を置かないでください。", cx, iy + Math.round(ih*0.48), Math.round(iw*0.88), Math.round(sSize*1.25), trackSub);
-
-  if(spec.en){
-    ctx.font=`600 ${eSize}px 'Noto Sans JP'`;
-    wrapCenterTracked(ctx, spec.en, cx, iy + Math.round(ih*0.64), Math.round(iw*0.86), Math.round(eSize*1.2), trackEn);
-  }
-}
-
-function drawStop(spec){
-  ctx.fillStyle="#fff"; ctx.fillRect(0,0,canvas.width,canvas.height);
-  const pad = Math.round(Math.min(canvas.width, canvas.height)*0.06);
-  const x=pad,y=pad,w=canvas.width-pad*2,h=canvas.height-pad*2;
-
-  // 白卡 + 橙斜纹边 + 细描边
-  ctx.save(); ctx.shadowColor="rgba(0,0,0,.08)"; ctx.shadowBlur=24; ctx.shadowOffsetY=10;
-  ctx.fillStyle="#fff"; roundRect(ctx,x,y,w,h,26,true,false); ctx.restore();
-  ctx.save(); ctx.fillStyle = stripePattern("#ff7a00","#fff"); ctx.globalAlpha=0.38;
-  roundRect(ctx,x+10,y+10,w-20,h-20,20,true,false); ctx.restore();
-  ctx.strokeStyle="#e5e8ee"; ctx.lineWidth=6; roundRect(ctx,x+8,y+8,w-16,h-16,20,false,true);
-
-  // 红色倒三角
-  const cx = x + w/2;
-  const side = Math.min(w,h)*0.28;
-  const topY = y + Math.round(h*0.22);
-  ctx.fillStyle="#d32f2f"; ctx.beginPath();
-  ctx.moveTo(cx, topY);
-  ctx.lineTo(cx - side/1.15, topY + side*0.95);
-  ctx.lineTo(cx + side/1.15, topY + side*0.95);
-  ctx.closePath(); ctx.fill();
-
-  // 文案（红色 + 字距）
-  const tSize = Math.round(h*0.115), sSize = Math.round(h*0.072), eSize = Math.round(h*0.070);
-  const trackT = Math.max(2, Math.round(tSize*0.03));
-  const trackS = Math.max(1, Math.round(sSize*0.03));
-  const trackE = Math.max(1, Math.round(eSize*0.025));
-
-  ctx.fillStyle="#d32f2f"; ctx.textAlign="center";
-  ctx.font=`800 ${tSize}px 'Noto Sans JP'`;
-  wrapCenterTracked(ctx, spec.title||"止まれ", cx, y + Math.round(h*0.16), Math.round(w*0.82), Math.round(tSize*1.12), trackT);
-  ctx.font=`700 ${sSize}px 'Noto Sans JP'`;
-  wrapCenterTracked(ctx, spec.subtitle||"一時停止", cx, y + Math.round(h*0.36), Math.round(w*0.82), Math.round(sSize*1.20), trackS);
-  if(spec.en){
-    ctx.font=`700 ${eSize}px 'Noto Sans JP'`;
-    wrapCenterTracked(ctx, spec.en, cx, y + Math.round(h*0.46), Math.round(w*0.82), Math.round(eSize*1.18), trackE);
-  }
-}
-
-function drawExit(spec){
-  ctx.fillStyle="#237F52"; ctx.fillRect(0,0,canvas.width,canvas.height);
-  const pad = Math.round(Math.min(canvas.width, canvas.height)*0.05);
-  const x=pad,y=pad,w=canvas.width-pad*2,h=canvas.height-pad*2;
-
-  // 绿底 + 白头条
-  const grad = ctx.createLinearGradient(x,y, x, y+h);
-  grad.addColorStop(0, "#268a5c"); grad.addColorStop(1, "#237F52");
-  ctx.fillStyle=grad; roundRect(ctx,x,y,w,h,26,true,false);
-
-  const hh = Math.round(h*0.22);
-  ctx.fillStyle="#fff"; roundRect(ctx,x+12,y+12,w-24,hh,16,true,false);
-
-  // 标题（左对齐大字 + 微 tracking），正文（居中）
-  const cx = x + w/2;
-  ctx.fillStyle="#111"; ctx.textAlign="left"; ctx.font=`800 ${Math.round(hh*0.42)}px 'Noto Sans JP'`;
-  const trackHead = Math.max(2, Math.round(hh*0.42*0.02));
-  drawTrackedLine(ctx, spec.title||"非常口", x+28, y + Math.round(hh*0.58), trackHead);
-
-  ctx.textAlign="center";
-  ctx.fillStyle="#fff"; ctx.font=`700 ${Math.round(h*0.09)}px 'Noto Sans JP'`;
-  wrapCenterTracked(ctx, spec.subtitle||"前に物を置かない", cx, y+hh+60, Math.round(w*0.86), Math.round(h*0.10), Math.round(h*0.09*0.02));
-  if(spec.en){
-    ctx.fillStyle="#e8f5ec"; ctx.font=`600 ${Math.round(h*0.06)}px 'Noto Sans JP'`;
-    wrapCenterTracked(ctx, spec.en, cx, y+hh+140, Math.round(w*0.86), Math.round(h*0.08), Math.round(h*0.06*0.02));
-  }
-}
-
-function drawBlue(spec){
-  // 信息板：纯文字（与你样例一致），不画人物
-  ctx.fillStyle="#fff"; ctx.fillRect(0,0,canvas.width,canvas.height);
-  const pad = Math.round(Math.min(canvas.width, canvas.height)*0.06);
-  const x=pad,y=pad,w=canvas.width-pad*2,h=canvas.height-pad*2;
-
-  // 外白卡 + 细描边
-  ctx.fillStyle="#fff"; roundRect(ctx,x,y,w,h,28,true,false);
-  ctx.strokeStyle="#cfd8e1"; ctx.lineWidth=6; roundRect(ctx,x+6,y+6,w-16,h-16,24,false,true);
-
-  // 内蓝板（淡底 + 粗边）
-  const bx=x+26, by=y+26, bw=w-52, bh=h-52;
-  ctx.fillStyle="#eaf2f9"; roundRect(ctx,bx,by,bw,bh,22,true,false);
-  ctx.strokeStyle="#005387"; ctx.lineWidth=18; roundRect(ctx,bx+14,by+14,bw-28,bh-28,18,false,true);
-
-  // 纯文字层级
-  const cx = bx + bw/2;
-  const tSize = Math.round(bh*0.23);
-  const eSize = Math.round(bh*0.10);
-  const sSize = Math.round(bh*0.085);
-  const trackT = Math.max(2, Math.round(tSize*0.025));
-  const trackE = Math.max(1, Math.round(eSize*0.02));
-  const trackS = Math.max(1, Math.round(sSize*0.02));
-
-  ctx.fillStyle="#005387"; ctx.textAlign="center"; ctx.font=`800 ${tSize}px 'Noto Sans JP'`;
-  wrapCenterTracked(ctx, spec.title || "案内", cx, by + Math.round(bh*0.22), Math.round(bw*0.86), Math.round(tSize*1.18), trackT);
-
-  if (spec.en){
-    ctx.fillStyle="#2b2f38"; ctx.font=`600 ${eSize}px 'Noto Sans JP'`;
-    wrapCenterTracked(ctx, spec.en, cx, by + Math.round(bh*0.56), Math.round(bw*0.80), Math.round(eSize*1.16), trackE);
-  }
-  if (spec.subtitle){
-    ctx.fillStyle="#445"; ctx.font=`600 ${sSize}px 'Noto Sans JP'`;
-    wrapCenterTracked(ctx, spec.subtitle, cx, by + Math.round(bh*0.72), Math.round(bw*0.82), Math.round(sSize*1.16), trackS);
-  }
-}
-
-// =================== 6) 主流程：自然语言 → 规格 → 渲染 ===================
-async function generatePoster(userText){
-  addMsg("user", userText);
-
-  // 固定 A3 横 @ 200dpi
-  setCanvasA3(true);
-
-  let spec = {};
-  if (engine){
-    try{
-      const reply = await engine.chat.completions.create({
-        messages:[
-          { role:"system", content: SYSTEM_PROMPT },
-          { role:"user",   content: `${userText}\nサイズ:A3横` }
-        ],
-        temperature: 0.2, max_tokens: 400, stream: false,
-      });
-      spec = JSON.parse(reply.choices[0].message.content);
-    }catch(e){
-      console.warn("LLM parse fail:", e);
-    }
-  }
-
-  // Fallback：更稳的关键词推断（不暴露模板）
-  if(!spec.style){
-    const t=(userText||"").toLowerCase();
-    if(/止まれ|一時停止|stop/.test(t)) spec.style="stop_triangle";
-    else if(/禁止|立入禁止|仮置|火気|no /.test(t)) spec.style="prohibit_red";
-    else if(/非常口|避難|assembly|evac/.test(t))    spec.style="exit_green";
-    else if(/置場|通路|案内|レーン|バース|station|area|lane|dock/.test(t)) spec.style="info_blue";
-    else spec.style="caution_yellow";
-
-    if(!spec.title){
-      if(spec.style==="prohibit_red") spec.title="仮置き禁止";
-      else if(spec.style==="exit_green") spec.title="非常口";
-      else if(spec.style==="stop_triangle") spec.title="止まれ";
-      else if(spec.style==="info_blue") spec.title="案内";
-      else spec.title="通行注意";
-    }
-    spec.subtitle = spec.subtitle || "周囲確認を徹底しましょう。";
-  }
-
-  // 明确不使用“人物”
-  spec.icon = "none";
-
-  addMsg("assistant", `スタイル：${spec.style}／タイトル：${spec.title}／英語：${spec.en||""}`);
-
-  if(spec.style==="caution_yellow")      drawCaution(spec);
-  else if(spec.style==="prohibit_red")   drawProhibit(spec);
-  else if(spec.style==="stop_triangle")  drawStop(spec);
-  else if(spec.style==="exit_green")     drawExit(spec);
-  else if(spec.style==="info_blue")      drawBlue(spec);
-  else                                   drawCaution(spec);
-}
-
-// =================== 7) 初始预览 ===================
-setCanvasA3(true);
-drawCaution({ title:"通行注意", subtitle:"走行車両あり。周囲確認を徹底。", en:"Watch for vehicles" });
-addMsg("assistant","自然言語で指示してください。例：「シャッターライン内は仮置き禁止。英語併記。」/「非常口 前に物を置かない」/「止まれ 一時停止 英語」");
