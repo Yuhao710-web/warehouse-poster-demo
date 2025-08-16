@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>倉庫ポスターAI（デモ）</title>
+  <link rel="stylesheet" href="./style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:FILL@0..1,wght@300..700" rel="stylesheet" />
+</head>
+<body>
+  <header class="header">倉庫ポスターAI（デモ）</header>
+  <main class="container">
+    <section class="chat">
+      <div id="messages" class="messages"></div>
+      <div class="input-row">
+        <input id="prompt" placeholder="例：フォークリフトエリアで歩行者に注意喚起するポスターを作って" />
+        <button id="send">送信</button>
+      </div>
+    </section>
+    <section class="preview">
+      <canvas id="poster" width="1404" height="993"></canvas>
+      <div class="actions"><button id="download">PNGをダウンロード</button></div>
+    </section>
+  </main>
+  <script src="https://unpkg.com/@mlc-ai/web-llm/dist/webllm.min.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
