@@ -1,0 +1,24 @@
+Last login: Sat Aug 16 13:34:42 on ttys000
+w@WdeMacBook-Air ~ % 
+---
+
+### 5. `vercel.json`
+```json
+{
+  "cleanUrls": true
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
