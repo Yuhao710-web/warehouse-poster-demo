@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="ja">
 <head>
@@ -6,9 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>倉庫ポスターAI（デモ）</title>
   <link rel="stylesheet" href="./style.css" />
-  <!-- 日文字体 & Material Symbols -->
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600;800&display=swap" rel="stylesheet">
-  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:FILL@0..1,wght@300..700" rel="stylesheet" />
 </head>
 <body>
   <header class="header">倉庫ポスターAI（デモ）</header>
@@ -16,52 +13,22 @@
   <main class="container">
     <section class="chat">
       <div id="messages" class="messages"></div>
-
       <div class="input-row">
-        <input id="prompt" placeholder="例：歩行者通路の案内を作成。A3横、簡潔、英語併記。" />
+        <input id="prompt" placeholder="例：シャッターライン内は仮置き禁止。英語併記。A3横。" />
         <button id="send">送信</button>
-      </div>
-
-      <!-- 新增：外观/尺寸/分辨率 -->
-      <div class="toolbar">
-        <label>テンプレート：
-          <select id="template">
-            <option value="auto">自動（おすすめ）</option>
-            <option value="caution">黄×黒 斜線（注意）</option>
-            <option value="prohibit">赤×白 斜線（禁止）</option>
-            <option value="stop">止まれ（三角）</option>
-            <option value="exit">非常口ヘッダー（緑）</option>
-            <option value="blue">情報・置場（青）</option>
-          </select>
-        </label>
-        <label>サイズ：
-          <select id="size">
-            <option value="A3横">A3横</option>
-            <option value="A3縦">A3縦</option>
-          </select>
-        </label>
-        <label class="chk"><input type="checkbox" id="hires" checked /> 高解像度（200dpi）</label>
-      </div>
-
-      <!-- 一键示例（根据你给的参考图） -->
-      <div class="quickbar">
-        <button class="qbtn" data-q="通行注意。走行車両あり。A3横。英語併記。">通行注意（黄黒）</button>
-        <button class="qbtn" data-q="シャッターライン内 仮置き禁止。A3横。英語併記。">仮置き禁止（赤白）</button>
-        <button class="qbtn" data-q="止まれ。一時停止。A3横。英語併記。">止まれ（赤三角）</button>
-        <button class="qbtn" data-q="非常口。前に物を置かない。A3横。英語併記。">非常口（緑）</button>
-        <button class="qbtn" data-q="歩行者通路の案内。A3横。英語併記。">歩行者通路（青）</button>
-        <button class="qbtn" data-q="パレット置場の案内。A3横。英語併記。">パレット置場（青）</button>
       </div>
     </section>
 
     <section class="preview">
-      <canvas id="poster" width="3307" height="2339" aria-label="A3@200dpi"></canvas>
+      <!-- A3 landscape @ ~200dpi: 3307 x 2339 -->
+      <canvas id="poster" width="3307" height="2339" aria-label="A3横 200dpi ポスター"></canvas>
       <div class="actions">
         <button id="download">PNGをダウンロード</button>
       </div>
     </section>
   </main>
 
+  <!-- Web LLM（浏览器端小模型） -->
   <script src="https://unpkg.com/@mlc-ai/web-llm/dist/webllm.min.js"></script>
   <script src="./app.js"></script>
 </body>
