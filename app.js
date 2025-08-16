@@ -104,6 +104,21 @@ function wrapCenterTracked(c, text, cx, top, maxW, lineHeight, tracking=0){
   }
   if(line) drawTrackedLine(c, line, cx, y, tracking);
 }
+// 仅测行数，不绘制（用于防止上下区块重叠）
+function wrapMeasureLines(c, text, maxW, lineHeight, tracking=0){
+  const chars = (text||"").split("");
+  let line = "", lines = 0;
+  for(const ch of chars){
+    const test = line + ch;
+    if(measureLineWidth(c, test, tracking) > maxW && line){
+      lines += 1; line = ch;
+    }else{
+      line = test;
+    }
+  }
+  if(line) lines += 1;
+  return lines;
+}
 
 // =================== 4) LLM 提示（学习过你的风格） ===================
 const STYLE_BOOK = `
@@ -134,9 +149,9 @@ const SYSTEM_PROMPT = `
 ${STYLE_BOOK}
 出力は必ず上記スキーマのJSONのみ。説明文は出力しない。`;
 
-// =================== 5) 五种风格渲染（更像你的样例；不画人物；柔和色 & 加大行距） ===================
+// =================== 5) 五种风格渲染（顺序排版，按行数自动避让；柔和色 & 加大行距） ===================
 
-// === 1) 注意（黄）— 行距加大 + 柔和黄 + 更淡斜纹 ===
+// === 1) 注意（黄）— 更柔和 + 顺序排版：标题→副标题→英文 ===
 function drawCaution(spec){
   ctx.fillStyle="#fff"; ctx.fillRect(0,0,canvas.width,canvas.height);
 
@@ -147,40 +162,51 @@ function drawCaution(spec){
   ctx.save(); ctx.shadowColor="rgba(0,0,0,.08)"; ctx.shadowBlur=24; ctx.shadowOffsetY=10;
   ctx.fillStyle="#fff"; roundRect(ctx,x,y,w,h,26,true,false); ctx.restore();
 
-  // 更柔和的黄 + 更淡的斜纹
+  // 柔和黄 + 淡斜纹
   const inPad = Math.round(Math.min(w,h)*0.06);
   const ix=x+inPad, iy=y+inPad, iw=w-inPad*2, ih=h-inPad*2;
   const grad = ctx.createLinearGradient(ix,iy, ix, iy+ih);
-  grad.addColorStop(0, "#f7de88");  // softer top
-  grad.addColorStop(1, "#f6d66e");  // softer bottom
+  grad.addColorStop(0, "#f7de88");
+  grad.addColorStop(1, "#f6d66e");
   ctx.fillStyle = grad; roundRect(ctx,ix,iy,iw,ih,20,true,false);
 
-  ctx.save(); ctx.fillStyle = stripePattern("#000", "rgba(0,0,0,0)"); ctx.globalAlpha=0.14; // 更淡
+  ctx.save(); ctx.fillStyle = stripePattern("#000", "rgba(0,0,0,0)"); ctx.globalAlpha=0.14;
   roundRect(ctx,ix+16,iy+16,iw-32,ih-32,16,true,false); ctx.restore();
 
-  // 文案（增大行距；稍减字距）
+  // 文案（行距 + 字距）
   const cx = x + w/2;
+  const maxW = Math.round(iw*0.86);
+
   const tSize = Math.round(ih*0.19);
   const sSize = Math.round(ih*0.10);
   const eSize = Math.round(ih*0.085);
-  const trackTitle = Math.max(2, Math.round(tSize*0.020)); // ↓ 由 0.03 调柔
-  const trackSub   = Math.max(1, Math.round(sSize*0.018));
-  const trackEn    = Math.max(1, Math.round(eSize*0.018));
+  const tLH = Math.round(tSize*1.26);
+  const sLH = Math.round(sSize*1.34);
+  const eLH = Math.round(eSize*1.30);
+  const trackT = Math.max(2, Math.round(tSize*0.020));
+  const trackS = Math.max(1, Math.round(sSize*0.018));
+  const trackE = Math.max(1, Math.round(eSize*0.018));
 
-  ctx.fillStyle="#1a1a1a"; ctx.textAlign="center";
+  // 先测行数，再排版，确保不重叠
+  ctx.textAlign="center"; ctx.fillStyle="#1a1a1a";
   ctx.font=`800 ${tSize}px 'Noto Sans JP'`;
-  wrapCenterTracked(ctx, spec.title||"通行注意", cx, iy + Math.round(ih*0.30), Math.round(iw*0.86), Math.round(tSize*1.26), trackTitle);
+  const tLines = wrapMeasureLines(ctx, spec.title||"通行注意", maxW, tLH, trackT);
+  let yTop = iy + Math.round(ih*0.26); // 标题起点稍靠上
+  wrapCenterTracked(ctx, spec.title||"通行注意", cx, yTop, maxW, tLH, trackT);
+  yTop += tLines * tLH + Math.round(ih*0.06); // 与副标题的间距
 
   ctx.font=`700 ${sSize}px 'Noto Sans JP'`;
-  wrapCenterTracked(ctx, spec.subtitle||"走行車両あり。周囲確認を徹底。", cx, iy + Math.round(ih*0.52), Math.round(iw*0.88), Math.round(sSize*1.34), trackSub);
+  const sLines = wrapMeasureLines(ctx, spec.subtitle||"走行車両あり。周囲確認を徹底。", maxW, sLH, trackS);
+  wrapCenterTracked(ctx, spec.subtitle||"走行車両あり。周囲確認を徹底。", cx, yTop, maxW, sLH, trackS);
+  yTop += sLines * sLH + Math.round(ih*0.06); // 与英文的间距
 
   if(spec.en){
     ctx.fillStyle="#2a2a2a"; ctx.font=`600 ${eSize}px 'Noto Sans JP'`;
-    wrapCenterTracked(ctx, spec.en, cx, iy + Math.round(ih*0.70), Math.round(iw*0.84), Math.round(eSize*1.30), trackEn);
+    wrapCenterTracked(ctx, spec.en, cx, yTop, maxW, eLH, trackE);
   }
 }
 
-// === 2) 禁止（红）— 行距加大 + 柔和红 + 更淡斜纹 ===
+// === 2) 禁止（红）— 柔和红 + 顺序排版：标题→副标题→英文 ===
 function drawProhibit(spec){
   ctx.fillStyle="#fff"; ctx.fillRect(0,0,canvas.width,canvas.height);
   const pad = Math.round(Math.min(canvas.width, canvas.height) * 0.06);
@@ -192,35 +218,45 @@ function drawProhibit(spec){
   const inPad = Math.round(Math.min(w,h)*0.06);
   const ix=x+inPad, iy=y+inPad, iw=w-inPad*2, ih=h-inPad*2;
   const grad = ctx.createLinearGradient(ix,iy, ix, iy+ih);
-  grad.addColorStop(0, "#d95a5a");  // softer top red
-  grad.addColorStop(1, "#cf4444");  // softer bottom red
+  grad.addColorStop(0, "#d95a5a");
+  grad.addColorStop(1, "#cf4444");
   ctx.fillStyle=grad; roundRect(ctx,ix,iy,iw,ih,20,true,false);
 
-  ctx.save(); ctx.fillStyle = stripePattern("#fff", "rgba(0,0,0,0)"); ctx.globalAlpha=0.20; // ↓ 由 0.27
+  ctx.save(); ctx.fillStyle = stripePattern("#fff", "rgba(0,0,0,0)"); ctx.globalAlpha=0.20;
   roundRect(ctx,ix+18,iy+18,iw-36,ih-36,16,true,false); ctx.restore();
 
   const cx = x + w/2;
+  const maxW = Math.round(iw*0.86);
+
   const tSize = Math.round(ih*0.19);
   const sSize = Math.round(ih*0.095);
   const eSize = Math.round(ih*0.085);
-  const trackTitle = Math.max(2, Math.round(tSize*0.020));
-  const trackSub   = Math.max(1, Math.round(sSize*0.018));
-  const trackEn    = Math.max(1, Math.round(eSize*0.018));
+  const tLH = Math.round(tSize*1.26);
+  const sLH = Math.round(sSize*1.34);
+  const eLH = Math.round(eSize*1.30);
+  const trackT = Math.max(2, Math.round(tSize*0.020));
+  const trackS = Math.max(1, Math.round(sSize*0.018));
+  const trackE = Math.max(1, Math.round(eSize*0.018));
 
-  ctx.fillStyle="#fff"; ctx.textAlign="center";
+  ctx.textAlign="center"; ctx.fillStyle="#fff";
   ctx.font=`800 ${tSize}px 'Noto Sans JP'`;
-  wrapCenterTracked(ctx, spec.title||"仮置き禁止", cx, iy + Math.round(ih*0.30), Math.round(iw*0.86), Math.round(tSize*1.26), trackTitle);
+  const tLines = wrapMeasureLines(ctx, spec.title||"仮置き禁止", maxW, tLH, trackT);
+  let yTop = iy + Math.round(ih*0.26);
+  wrapCenterTracked(ctx, spec.title||"仮置き禁止", cx, yTop, maxW, tLH, trackT);
+  yTop += tLines * tLH + Math.round(ih*0.06);
 
   ctx.font=`600 ${sSize}px 'Noto Sans JP'`;
-  wrapCenterTracked(ctx, spec.subtitle||"この範囲に物を置かないでください。", cx, iy + Math.round(ih*0.50), Math.round(iw*0.86), Math.round(sSize*1.34), trackSub);
+  const sLines = wrapMeasureLines(ctx, spec.subtitle||"この範囲に物を置かないでください。", maxW, sLH, trackS);
+  wrapCenterTracked(ctx, spec.subtitle||"この範囲に物を置かないでください。", cx, yTop, maxW, sLH, trackS);
+  yTop += sLines * sLH + Math.round(ih*0.06);
 
   if(spec.en){
     ctx.font=`600 ${eSize}px 'Noto Sans JP'`;
-    wrapCenterTracked(ctx, spec.en, cx, iy + Math.round(ih*0.68), Math.round(iw*0.84), Math.round(eSize*1.30), trackEn);
+    wrapCenterTracked(ctx, spec.en, cx, yTop, maxW, eLH, trackE);
   }
 }
 
-// === 3) 止まれ（白/橙/红）— 文字与三角形分区，绝不互相“打架” + 更柔和 ===
+// === 3) 止まれ（白/橙/红）— 文字与三角形分区（标题↑ 三角形中间 副标题/英文↓） ===
 function drawStop(spec){
   ctx.fillStyle="#fff"; ctx.fillRect(0,0,canvas.width,canvas.height);
   const pad = Math.round(Math.min(canvas.width, canvas.height)*0.06);
@@ -229,14 +265,14 @@ function drawStop(spec){
   // 白卡 + 更淡橙斜纹边 + 细描边
   ctx.save(); ctx.shadowColor="rgba(0,0,0,.08)"; ctx.shadowBlur=24; ctx.shadowOffsetY=10;
   ctx.fillStyle="#fff"; roundRect(ctx,x,y,w,h,26,true,false); ctx.restore();
-  ctx.save(); ctx.fillStyle = stripePattern("#ff9a3a","#fff"); ctx.globalAlpha=0.28; // ↓ 由 0.38
+  ctx.save(); ctx.fillStyle = stripePattern("#ff9a3a","#fff"); ctx.globalAlpha=0.28;
   roundRect(ctx,x+10,y+10,w-20,h-20,20,true,false); ctx.restore();
   ctx.strokeStyle="#e5e8ee"; ctx.lineWidth=6; roundRect(ctx,x+8,y+8,w-16,h-16,20,false,true);
 
-  // 红色倒三角（更柔一点）
+  // 红色倒三角（柔和）
   const cx = x + w/2;
   const side = Math.min(w,h)*0.28;
-  const triTop = y + Math.round(h*0.24);        // 稍微往下
+  const triTop = y + Math.round(h*0.24);
   ctx.fillStyle="#d54040";
   ctx.beginPath();
   ctx.moveTo(cx, triTop);
@@ -244,26 +280,30 @@ function drawStop(spec){
   ctx.lineTo(cx + side/1.15, triTop + side*0.95);
   ctx.closePath(); ctx.fill();
 
-  // 文案区：标题在三角上方，副标题/英文在三角下方（彻底避免交叉）
-  const titleY = y + Math.round(h*0.16);
-  const subY   = y + Math.round(h*0.58);
-  const enY    = y + Math.round(h*0.68);
-
+  // 文案：标题在三角上方，副标题/英文在三角下方（固定区域，天然不重叠）
   const tSize = Math.round(h*0.112), sSize = Math.round(h*0.072), eSize = Math.round(h*0.068);
+  const tLH = Math.round(tSize*1.28), sLH = Math.round(sSize*1.26), eLH = Math.round(eSize*1.24);
   const trackT = Math.max(2, Math.round(tSize*0.020));
   const trackS = Math.max(1, Math.round(sSize*0.018));
   const trackE = Math.max(1, Math.round(eSize*0.018));
+  const maxW = Math.round(w*0.82);
 
-  ctx.fillStyle="#c93535"; ctx.textAlign="center";
-  ctx.font=`800 ${tSize}px 'Noto Sans JP'`;
-  wrapCenterTracked(ctx, spec.title||"止まれ", cx, titleY, Math.round(w*0.82), Math.round(tSize*1.28), trackT);
+  // 标题（上）
+  ctx.fillStyle="#c93535"; ctx.textAlign="center"; ctx.font=`800 ${tSize}px 'Noto Sans JP'`;
+  const tLines = wrapMeasureLines(ctx, spec.title||"止まれ", maxW, tLH, trackT);
+  let yTop = y + Math.round(h*0.16);
+  wrapCenterTracked(ctx, spec.title||"止まれ", cx, yTop, maxW, tLH, trackT);
 
+  // 副标题 + 英文（下）
+  yTop = y + Math.round(h*0.58); // 三角形下缘之后
   ctx.font=`700 ${sSize}px 'Noto Sans JP'`;
-  wrapCenterTracked(ctx, spec.subtitle||"一時停止", cx, subY, Math.round(w*0.82), Math.round(sSize*1.26), trackS);
+  const sLines = wrapMeasureLines(ctx, spec.subtitle||"一時停止", maxW, sLH, trackS);
+  wrapCenterTracked(ctx, spec.subtitle||"一時停止", cx, yTop, maxW, sLH, trackS);
+  yTop += sLines * sLH + Math.round(h*0.02);
 
   if(spec.en){
     ctx.font=`700 ${eSize}px 'Noto Sans JP'`;
-    wrapCenterTracked(ctx, spec.en, cx, enY, Math.round(w*0.82), Math.round(eSize*1.24), trackE);
+    wrapCenterTracked(ctx, spec.en, cx, yTop, maxW, eLH, trackE);
   }
 }
 
@@ -290,17 +330,22 @@ function drawExit(spec){
 
   ctx.textAlign="center";
   ctx.fillStyle="#fff"; const bodySize = Math.round(h*0.088);
+  const bodyLH = Math.round(bodySize*1.32);
+  const maxW = Math.round(w*0.86);
   ctx.font=`700 ${bodySize}px 'Noto Sans JP'`;
-  wrapCenterTracked(ctx, spec.subtitle||"前に物を置かない", cx, y+hh+60, Math.round(w*0.86), Math.round(bodySize*1.32), Math.round(bodySize*0.02));
+  const sLines = wrapMeasureLines(ctx, spec.subtitle||"前に物を置かない", maxW, bodyLH, Math.round(bodySize*0.02));
+  wrapCenterTracked(ctx, spec.subtitle||"前に物を置かない", cx, y+hh+60, maxW, bodyLH, Math.round(bodySize*0.02));
 
+  let yTop = y+hh+60 + sLines * bodyLH + Math.round(h*0.02);
   if(spec.en){
     ctx.fillStyle="#edf7f1"; const eSize = Math.round(h*0.060);
+    const eLH = Math.round(eSize*1.28);
     ctx.font=`600 ${eSize}px 'Noto Sans JP'`;
-    wrapCenterTracked(ctx, spec.en, cx, y+hh+150, Math.round(w*0.86), Math.round(eSize*1.28), Math.round(eSize*0.02));
+    wrapCenterTracked(ctx, spec.en, cx, yTop, maxW, eLH, Math.round(eSize*0.02));
   }
 }
 
-// === 5) 信息板（蓝）— 更柔和蓝 + 纯文字 + 行距加大 ===
+// === 5) 信息板（蓝）— 柔和蓝 + 顺序排版：标题→英文→副标题 ===
 function drawBlue(spec){
   ctx.fillStyle="#fff"; ctx.fillRect(0,0,canvas.width,canvas.height);
   const pad = Math.round(Math.min(canvas.width, canvas.height)*0.06);
@@ -310,27 +355,38 @@ function drawBlue(spec){
   ctx.strokeStyle="#d8dee6"; ctx.lineWidth=6; roundRect(ctx,x+6,y+6,w-16,h-16,24,false,true);
 
   const bx=x+26, by=y+26, bw=w-52, bh=h-52;
-  ctx.fillStyle="#eff5fb"; roundRect(ctx,bx,by,bw,bh,22,true,false);          // 更柔的底
-  ctx.strokeStyle="#1e6da0"; ctx.lineWidth=16; roundRect(ctx,bx+14,by+14,bw-28,bh-28,18,false,true); // 更柔的蓝边
+  ctx.fillStyle="#eff5fb"; roundRect(ctx,bx,by,bw,bh,22,true,false);
+  ctx.strokeStyle="#1e6da0"; ctx.lineWidth=16; roundRect(ctx,bx+14,by+14,bw-28,bh-28,18,false,true);
 
   const cx = bx + bw/2;
+  const maxW = Math.round(bw*0.84);
   const tSize = Math.round(bh*0.23);
   const eSize = Math.round(bh*0.10);
   const sSize = Math.round(bh*0.085);
+  const tLH = Math.round(tSize*1.26);
+  const eLH = Math.round(eSize*1.24);
+  const sLH = Math.round(sSize*1.24);
   const trackT = Math.max(2, Math.round(tSize*0.020));
   const trackE = Math.max(1, Math.round(eSize*0.018));
   const trackS = Math.max(1, Math.round(sSize*0.018));
 
+  // 顺序：标题 → 英文 → 副标题（均基于行数下推，杜绝重叠）
   ctx.fillStyle="#2b6f9d"; ctx.textAlign="center"; ctx.font=`800 ${tSize}px 'Noto Sans JP'`;
-  wrapCenterTracked(ctx, spec.title || "案内", cx, by + Math.round(bh*0.22), Math.round(bw*0.84), Math.round(tSize*1.26), trackT);
+  const tLines = wrapMeasureLines(ctx, spec.title || "案内", maxW, tLH, trackT);
+  let yTop = by + Math.round(bh*0.20);
+  wrapCenterTracked(ctx, spec.title || "案内", cx, yTop, maxW, tLH, trackT);
+  yTop += tLines * tLH + Math.round(bh*0.05);
 
   if (spec.en){
     ctx.fillStyle="#344055"; ctx.font=`600 ${eSize}px 'Noto Sans JP'`;
-    wrapCenterTracked(ctx, spec.en, cx, by + Math.round(bh*0.56), Math.round(bw*0.78), Math.round(eSize*1.24), trackE);
+    const eLines = wrapMeasureLines(ctx, spec.en, maxW, eLH, trackE);
+    wrapCenterTracked(ctx, spec.en, cx, yTop, maxW, eLH, trackE);
+    yTop += eLines * eLH + Math.round(bh*0.04);
   }
+
   if (spec.subtitle){
     ctx.fillStyle="#4a5366"; ctx.font=`600 ${sSize}px 'Noto Sans JP'`;
-    wrapCenterTracked(ctx, spec.subtitle, cx, by + Math.round(bh*0.73), Math.round(bw*0.80), Math.round(sSize*1.24), trackS);
+    wrapCenterTracked(ctx, spec.subtitle, cx, yTop, maxW, sLH, trackS);
   }
 }
 
@@ -357,7 +413,7 @@ async function generatePoster(userText){
     }
   }
 
-  // Fallback：更稳的关键词推断（不暴露模板）
+  // Fallback：关键词推断
   if(!spec.style){
     const t=(userText||"").toLowerCase();
     if(/止まれ|一時停止|stop/.test(t)) spec.style="stop_triangle";
@@ -376,7 +432,7 @@ async function generatePoster(userText){
     spec.subtitle = spec.subtitle || "周囲確認を徹底しましょう。";
   }
 
-  // 明确不使用“人物”
+  // 不使用“人物”
   spec.icon = "none";
 
   addMsg("assistant", `スタイル：${spec.style}／タイトル：${spec.title}／英語：${spec.en||""}`);
