@@ -1,30 +1,44 @@
-// ========== 1) WebLLM ==========
+// =================== 1) WebLLM 初始化 ===================
 let engine;
 (async () => {
   try{
     engine = await webllm.CreateWebWorkerEngine(
       new Worker("https://unpkg.com/@mlc-ai/web-llm/dist/worker.js", { type:"module" }),
-      { model:"Llama-3.2-1B-Instruct-q4f32_1-MLC" }
+      { model:"Llama-3.2-1B-Instruct-q4f32_1-MLC" } // 体积较小，前端可跑
     );
   }catch(e){
     console.warn("WebLLM init failed:", e);
-    addMsg("assistant", "（お知らせ）AI自動生成が無効の可能性があります。手動でも調整できます。");
+    addMsg("assistant", "（お知らせ）AI自動生成が無効の可能性があります。テキストのみで見た目を推定します。");
   }
 })();
 
-// ========== 2) UI ==========
+// =================== 2) UI 绑定 & IME 回车识别 ===================
 const messagesEl = document.getElementById("messages");
 const promptEl   = document.getElementById("prompt");
 const sendBtn    = document.getElementById("send");
-const sizeSel    = document.getElementById("size");
-const hiResCb    = document.getElementById("hires");
 const canvas     = document.getElementById("poster");
 const ctx        = canvas.getContext("2d");
 const dlBtn      = document.getElementById("download");
 
-document.querySelectorAll('.qbtn').forEach(b=>{
-  b.addEventListener('click', ()=>generatePoster(b.dataset.q));
+let isComposing = false;
+promptEl.addEventListener("compositionstart", ()=>{ isComposing = true; });
+promptEl.addEventListener("compositionend",   ()=>{ isComposing = false; });
+promptEl.addEventListener("keydown", (e)=>{
+  if(e.key === "Enter" && !e.shiftKey){
+    if (e.isComposing || isComposing || e.keyCode === 229) return; // 输入法确认，不发送
+    e.preventDefault(); sendBtn.click();
+  }
 });
+
+sendBtn.onclick = ()=>{
+  const t = (promptEl.value || "").trim();
+  if(t) generatePoster(t);
+};
+dlBtn.onclick = ()=>{
+  const url = canvas.toDataURL("image/png");
+  const a = document.createElement("a"); a.href = url; a.download = "poster.png"; a.click();
+};
+
 function addMsg(role, text){
   const div = document.createElement("div");
   div.className = "msg " + (role === "user" ? "user" : "bot");
@@ -33,355 +47,325 @@ function addMsg(role, text){
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
-// ========== 3) Palettes & helpers ==========
-const SAFETY = {
-  warning:    { base:"#F9A900", glyph:"#111111" },
-  prohibition:{ base:"#C62828", glyph:"#111111" },
-  mandatory:  { base:"#005387", glyph:"#0E3861"  }, // 深蓝做线条
-  safe:       { base:"#237F52", glyph:"#FFFFFF" },
-  fire:       { base:"#C62828", glyph:"#FFFFFF" },
-  neutral:    { base:"#2B2B2C", glyph:"#FFFFFF" }
-};
-
-function hexToRgb(hex){ const s=hex.replace('#',''); const n=parseInt(s,16); return {r:(n>>16)&255,g:(n>>8)&255,b:n&255}; }
-function rgbToHex(r,g,b){ const h=x=>x.toString(16).padStart(2,'0'); return `#${h(r)}${h(g)}${h(b)}`; }
-function tint(hex, amt){ const {r,g,b}=hexToRgb(hex); const t=v=>Math.max(0,Math.min(255,Math.round(v + (255-v)*amt))); return rgbToHex(t(r),t(g),t(b)); }
+// =================== 3) 画布与工具函数 ===================
+function setCanvasA3(hiRes=true){
+  const dpi = hiRes ? 200 : 150;
+  const W = Math.round((420/25.4)*dpi);  // 420mm
+  const H = Math.round((297/25.4)*dpi);  // 297mm
+  canvas.width = W; canvas.height = H;   // A3 横向
+}
+function roundRect(c, x,y,w,h,r, fill=true, stroke=false){
+  c.beginPath();
+  c.moveTo(x+r, y);
+  c.arcTo(x+w, y,   x+w, y+h, r);
+  c.arcTo(x+w, y+h, x,   y+h, r);
+  c.arcTo(x,   y+h, x,   y,   r);
+  c.arcTo(x,   y,   x+w, y,   r);
+  c.closePath();
+  if (fill)   c.fill();
+  if (stroke) c.stroke();
+}
 function stripePattern(color, bg="#fff"){
-  const p = document.createElement('canvas'); p.width=80; p.height=80;
-  const pc = p.getContext('2d'); pc.fillStyle = bg; pc.fillRect(0,0,80,80);
+  const p = document.createElement("canvas"); p.width = 80; p.height = 80;
+  const pc = p.getContext("2d");
+  pc.fillStyle = bg; pc.fillRect(0,0,80,80);
   pc.save(); pc.translate(0,40); pc.rotate(-Math.PI/4);
   pc.strokeStyle = color; pc.lineWidth = 20;
   for(let x=-200;x<=200;x+=40){ pc.beginPath(); pc.moveTo(x,-200); pc.lineTo(x,200); pc.stroke(); }
-  pc.restore(); return ctx.createPattern(p, 'repeat');
-}
-function setCanvasSize(size, hiRes){
-  const dpi = hiRes ? 200 : 150;
-  const W = Math.round((420/25.4)*dpi), H = Math.round((297/25.4)*dpi);
-  const landscape = (size||"A3横").includes("横");
-  canvas.width  = landscape ? W : H; canvas.height = landscape ? H : W;
-}
-function roundRect(c, x,y,w,h,r, fill=true, stroke=false){
-  c.beginPath(); c.moveTo(x+r,y); c.arcTo(x+w,y,x+w,y+h,r); c.arcTo(x+w,y+h,x,y+h,r);
-  c.arcTo(x,y+h,x,y,r); c.arcTo(x,y,x+w,y,r); c.closePath(); if(fill) c.fill(); if(stroke) c.stroke();
-}
-function wrap(c, text, x, y, maxW, lh){
-  const chars = (text||"").split(""); let line="", yy=y;
-  for(let i=0;i<chars.length;i++){ const t=line+chars[i];
-    if(c.measureText(t).width>maxW && line){ c.fillText(line,x,yy); line=chars[i]; yy+=lh; } else line=t; }
-  if(line) c.fillText(line,x,yy);
+  pc.restore();
+  return ctx.createPattern(p, "repeat");
 }
 
-// ========== 4) Few-shot style book + prompt ==========
+// ======= （关键）字距 & 居中换行：更接近你参考图的排版 =======
+function measureLineWidth(c, text, tracking=0){
+  let w = 0;
+  for(const ch of (text||"")) w += c.measureText(ch).width + tracking;
+  return Math.max(0, w - tracking);
+}
+function drawTrackedLine(c, text, cx, y, tracking=0){
+  const totalW = measureLineWidth(c, text, tracking);
+  let x = cx - totalW/2;
+  for(const ch of (text||"")){
+    c.fillText(ch, x, y);
+    x += c.measureText(ch).width + tracking;
+  }
+}
+function wrapCenterTracked(c, text, cx, top, maxW, lineHeight, tracking=0){
+  const chars = (text||"").split("");
+  let line = "", y = top;
+  for(const ch of chars){
+    const test = line + ch;
+    if(measureLineWidth(c, test, tracking) > maxW && line){
+      drawTrackedLine(c, line, cx, y, tracking);
+      line = ch; y += lineHeight;
+    }else{
+      line = test;
+    }
+  }
+  if(line) drawTrackedLine(c, line, cx, y, tracking);
+}
+
+// =================== 4) LLM 提示（学习过你的风格） ===================
 const STYLE_BOOK = `
 # 目的
-ユーザーの文章から、倉庫用サイン/ポスターのスタイルと文面を決める。
+ユーザーの自然言語から倉庫用の安全/案内ポスター仕様を推定する。
+テンプレートは使わず、最小限のスタイル指針だけを用いる。
 
-# スタイル
-- caution_yellow: 黄地+黒斜線枠。用途=「注意/通行注意/衝突注意」など。見出し太字。
-- prohibit_red: 赤地+白斜線枠。用途=「～禁止/仮置き禁止/立入禁止」。
-- stop_triangle: 白地+オレンジ斜線枠+赤い逆三角の「止まれ」。
-- exit_green: 緑地+白ヘッダー（避難口）。用途=「非常口/前に物を置かない」。
-- info_blue: 白地+青パネル+青枠。用途=「歩行者通路/○○置場/案内表示」。
+# 視覚指針（あなたが学習済みの例に合わせる）
+- 注意: 黄地 + 黒斜線のテクスチャ。中央に大見出し、太字。字間はやや広め。
+- 禁止: 赤地 + 白斜線。中央白字。メッセージを端的に。
+- 止まれ: 白地 + 橙斜線ボーダー + 中央の赤い逆三角。上に日本語、下に英語。
+- 安全/避難: 緑の大きなヘッダー + 本文は白地。左揃え見出し、本文は中央。
+- 案内(置場/通路などの青板): 白い外枠 + 青い内枠。人物シルエットは使わない。基本は文字中心。
 
-# 出力JSONスキーマ
+# 出力JSON（必須）
 {"style":"caution_yellow|prohibit_red|stop_triangle|exit_green|info_blue",
- "title":"日本語の大見出し",
- "subtitle":"日本語の補足（20～40字）",
+ "title":"日本語の大見出し（8〜10字程度に簡潔化）",
+ "subtitle":"日本語の補足（20〜40字）",
  "en":"英語（任意）",
- "extra":"第2言語（任意）",
+ "extra":"",
  "category":"warning|prohibition|mandatory|safe|fire|neutral",
- "icon":"歩行者|フォークリフト|台車|カゴ車|段ボール|パレット|ゴミ|立入禁止|避難口 など",
- "size":"A3横|A3縦"}
-
-# 例
-- 入力:「通行注意。走行車両あり。英語も入れて。」→ style=caution_yellow, title=通行注意, subtitle=走行車両あり。行人は十分注意。, en=Watch for vehicles, category=warning, icon=注意
-- 入力:「シャッターライン内は仮置き禁止。」→ style=prohibit_red, title=仮置き禁止, subtitle=シャッターライン内に物を置かないでください。, en=Do not place items on shutter line, category=prohibition, icon=立入禁止
-- 入力:「止まれ。一時停止。」→ style=stop_triangle, title=止まれ, subtitle=一時停止, en=Stop
-- 入力:「非常口の案内。前に物を置かない。」→ style=exit_green, title=非常口, subtitle=前に物を置かない, en=Emergency exit
-- 入力:「パレット置場の案内。」→ style=info_blue, title=パレット置場, subtitle=専用保管区域, en=Pallets station, category=mandatory, icon=パレット
+ "icon":"none",
+ "size":"A3横"}
 `;
 
 const SYSTEM_PROMPT = `
-あなたは倉庫安全ポスターのコピーライター兼デザイナー。${STYLE_BOOK}
-必ず上記スキーマのJSONだけを返す。余計な文章は禁止。`;
+あなたは倉庫安全ポスターのコピー/デザイン担当。
+${STYLE_BOOK}
+出力は必ず上記スキーマのJSONのみ。説明文は出力しない。`;
 
-// ========== 5) 线条图标（无需外部文件） ==========
-function drawLineIcon(type, x, y, w, h, color){
-  ctx.save();
-  ctx.strokeStyle = color || "#005387";
-  ctx.lineWidth = Math.max(6, Math.round(Math.min(w,h) * 0.02));
-  ctx.lineCap = "round"; ctx.lineJoin = "round";
-  // 统一一个内边距
-  const pad = Math.min(w,h) * 0.08;
-  const X = x + pad, Y = y + pad, W = w - pad*2, H = h - pad*2;
-
-  function rect(rx,ry,rw,rh,r=10){ ctx.beginPath(); roundRect(ctx, rx,ry,rw,rh,r,false,true); }
-  function circ(cx,cy,r){ ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.stroke(); }
-
-  switch(type){
-    case "pallet": { // 三层板条 + 地脚
-      rect(X, Y+H*0.05, W, H*0.22, 12);
-      rect(X, Y+H*0.39, W, H*0.22, 12);
-      rect(X, Y+H*0.73, W, H*0.18, 12);
-      ctx.beginPath();
-      ctx.moveTo(X+W*0.15, Y+H*0.95); ctx.lineTo(X+W*0.45, Y+H*0.95);
-      ctx.moveTo(X+W*0.55, Y+H*0.95); ctx.lineTo(X+W*0.85, Y+H*0.95);
-      ctx.stroke();
-      break;
-    }
-    case "cart": { // 平台车：平台 + 把手 + 轮子
-      rect(X, Y+H*0.65, W, H*0.20, 8);
-      ctx.beginPath(); // handle
-      ctx.moveTo(X+W*0.12, Y+H*0.65); ctx.lineTo(X+W*0.12, Y+H*0.15); ctx.lineTo(X+W*0.32, Y+H*0.15);
-      ctx.stroke();
-      circ(X+W*0.20, Y+H*0.90, H*0.06); circ(X+W*0.80, Y+H*0.90, H*0.06);
-      break;
-    }
-    case "cage": { // 笼车：外框 + 竖条 + 横条 + 轮
-      rect(X, Y+H*0.08, W, H*0.70, 12);
-      ctx.beginPath();
-      ctx.moveTo(X+W*0.33, Y+H*0.08); ctx.lineTo(X+W*0.33, Y+H*0.78);
-      ctx.moveTo(X+W*0.66, Y+H*0.08); ctx.lineTo(X+W*0.66, Y+H*0.78);
-      ctx.moveTo(X, Y+H*0.32); ctx.lineTo(X+W, Y+H*0.32);
-      ctx.moveTo(X, Y+H*0.56); ctx.lineTo(X+W, Y+H*0.56);
-      ctx.stroke();
-      circ(X+W*0.18, Y+H*0.90, H*0.06); circ(X+W*0.82, Y+H*0.90, H*0.06);
-      break;
-    }
-    case "cardboard": { // 纸箱堆
-      rect(X+W*0.05, Y+H*0.55, W*0.28, H*0.30, 8);
-      rect(X+W*0.36, Y+H*0.55, W*0.28, H*0.30, 8);
-      rect(X+W*0.67, Y+H*0.55, W*0.28, H*0.30, 8);
-      rect(X+W*0.21, Y+H*0.24, W*0.28, H*0.28, 8);
-      rect(X+W*0.52, Y+H*0.24, W*0.28, H*0.28, 8);
-      break;
-    }
-    case "trash": { // 三个垃圾桶
-      rect(X+W*0.02, Y+H*0.30, W*0.28, H*0.50, 10);
-      rect(X+W*0.36, Y+H*0.30, W*0.28, H*0.50, 10);
-      rect(X+W*0.70, Y+H*0.30, W*0.28, H*0.50, 10);
-      ctx.beginPath(); // 盖子
-      ctx.moveTo(X+W*0.02, Y+H*0.30);
-      ctx.lineTo(X+W*0.30, Y+H*0.30);
-      ctx.moveTo(X+W*0.36, Y+H*0.30);
-      ctx.lineTo(X+W*0.64, Y+H*0.30);
-      ctx.moveTo(X+W*0.70, Y+H*0.30);
-      ctx.lineTo(X+W*0.98, Y+H*0.30);
-      ctx.stroke();
-      break;
-    }
-    case "pedestrian": { // 小人走路
-      circ(X+W*0.52, Y+H*0.18, H*0.06);
-      ctx.beginPath(); // 身体/四肢
-      ctx.moveTo(X+W*0.52, Y+H*0.24); ctx.lineTo(X+W*0.42, Y+H*0.44); // 左臂
-      ctx.moveTo(X+W*0.52, Y+H*0.24); ctx.lineTo(X+W*0.64, Y+H*0.36); // 右臂
-      ctx.moveTo(X+W*0.44, Y+H*0.44); ctx.lineTo(X+W*0.36, Y+H*0.72); // 左腿
-      ctx.moveTo(X+W*0.60, Y+H*0.40); ctx.lineTo(X+W*0.56, Y+H*0.72); // 右腿
-      ctx.stroke();
-      break;
-    }
-    case "forklift": { // 叉车（简化）
-      circ(X+W*0.28, Y+H*0.82, H*0.06); circ(X+W*0.58, Y+H*0.82, H*0.06);
-      rect(X+W*0.18, Y+H*0.52, W*0.48, H*0.20, 10); // 车体
-      ctx.beginPath(); // 桅杆+货叉
-      ctx.moveTo(X+W*0.66, Y+H*0.30); ctx.lineTo(X+W*0.66, Y+H*0.80);
-      ctx.moveTo(X+W*0.66, Y+H*0.76); ctx.lineTo(X+W*0.90, Y+H*0.76);
-      ctx.moveTo(X+W*0.66, Y+H*0.84); ctx.lineTo(X+W*0.92, Y+H*0.84);
-      ctx.stroke();
-      break;
-    }
-    default: { // 占位
-      rect(X+W*0.15, Y+H*0.15, W*0.70, H*0.70, 16);
-    }
-  }
-  ctx.restore();
-}
-
-// 把自然语言或 spec.icon 转成我们上面的 type
-function inferIconType(textOrIcon){
-  const t = (textOrIcon||"").toString();
-  if(/パレット/.test(t)) return "pallet";
-  if(/台車|カート/.test(t)) return "cart";
-  if(/カゴ車/.test(t)) return "cage";
-  if(/段ボール|ダンボール|箱/.test(t)) return "cardboard";
-  if(/ゴミ|廃棄|trash/i.test(t)) return "trash";
-  if(/歩行者|通路|歩道/.test(t)) return "pedestrian";
-  if(/フォークリフト|リフト/.test(t)) return "forklift";
-  return "pedestrian";
-}
-
-// ========== 6) Renderers ==========
+// =================== 5) 五种风格渲染（更像你的样例；不画人物） ===================
 function drawCaution(spec){
-  const pal = SAFETY.warning;
   ctx.fillStyle="#fff"; ctx.fillRect(0,0,canvas.width,canvas.height);
-  const pad = Math.round(Math.min(canvas.width, canvas.height)*0.06);
-  const x=pad,y=pad,w=canvas.width-pad*2,h=canvas.height-pad*2;
-  ctx.fillStyle = tint(pal.base, 0.2); roundRect(ctx,x,y,w,h,22,true,false);
-  ctx.save(); ctx.fillStyle = stripePattern("#000", tint(pal.base,0.2)); ctx.globalAlpha=0.16;
-  roundRect(ctx,x+12,y+12,w-24,h-24,16,true,false); ctx.restore();
 
-  // 左侧小插图（根据 icon 推断）
-  drawLineIcon(inferIconType(spec.icon||""), x+24, y+24, Math.min(w*0.28, 520), h-48, "#111");
+  const pad = Math.round(Math.min(canvas.width, canvas.height) * 0.06);
+  const x=pad, y=pad, w=canvas.width-pad*2, h=canvas.height-pad*2;
 
-  // 文案
-  const tx = x + Math.min(w*0.28, 520) + 56, maxW = w - (tx - x) - 40;
-  ctx.fillStyle="#111"; ctx.font=`800 ${Math.round(h*0.13)}px 'Noto Sans JP'`;
-  wrap(ctx, spec.title||"通行注意", tx, y+Math.round(h*0.18), maxW, Math.round(h*0.15));
-  ctx.fillStyle="#111"; ctx.font=`700 ${Math.round(h*0.07)}px 'Noto Sans JP'`;
-  wrap(ctx, spec.subtitle||"走行車両あり。行人は十分注意。", tx, y+Math.round(h*0.38), maxW, Math.round(h*0.09));
-  ctx.fillStyle="#222"; ctx.font=`600 ${Math.round(h*0.06)}px 'Noto Sans JP'`;
-  if(spec.en) wrap(ctx, spec.en, tx, y+Math.round(h*0.54), maxW, Math.round(h*0.08));
-  if(spec.extra){ ctx.fillStyle="#333"; ctx.font=`600 ${Math.round(h*0.05)}px 'Noto Sans JP'`;
-    wrap(ctx, spec.extra, tx, y+Math.round(h*0.66), maxW, Math.round(h*0.07)); }
+  // 白卡 + 轻阴影
+  ctx.save(); ctx.shadowColor="rgba(0,0,0,.08)"; ctx.shadowBlur=24; ctx.shadowOffsetY=10;
+  ctx.fillStyle="#fff"; roundRect(ctx,x,y,w,h,26,true,false); ctx.restore();
+
+  // 黄底渐变 + 粗斜纹
+  const inPad = Math.round(Math.min(w,h)*0.06);
+  const ix=x+inPad, iy=y+inPad, iw=w-inPad*2, ih=h-inPad*2;
+  const grad = ctx.createLinearGradient(ix,iy, ix, iy+ih);
+  grad.addColorStop(0, "#f9d24a"); grad.addColorStop(1, "#f7c83a");
+  ctx.fillStyle = grad; roundRect(ctx,ix,iy,iw,ih,20,true,false);
+
+  ctx.save(); ctx.fillStyle = stripePattern("#000", "rgba(0,0,0,0)"); ctx.globalAlpha=0.20;
+  roundRect(ctx,ix+16,iy+16,iw-32,ih-32,16,true,false); ctx.restore();
+
+  // 文案（居中 + 字距）
+  const cx = x + w/2;
+  const tSize = Math.round(ih*0.19);
+  const sSize = Math.round(ih*0.10);
+  const eSize = Math.round(ih*0.085);
+  const trackTitle = Math.max(2, Math.round(tSize*0.03));
+  const trackSub   = Math.max(1, Math.round(sSize*0.03));
+  const trackEn    = Math.max(1, Math.round(eSize*0.025));
+
+  ctx.fillStyle="#111"; ctx.textAlign="center";
+  ctx.font=`800 ${tSize}px 'Noto Sans JP'`;
+  wrapCenterTracked(ctx, spec.title||"通行注意", cx, iy + Math.round(ih*0.30), Math.round(iw*0.88), Math.round(tSize*1.15), trackTitle);
+
+  ctx.font=`700 ${sSize}px 'Noto Sans JP'`;
+  wrapCenterTracked(ctx, spec.subtitle||"走行車両あり。周囲確認を徹底。", cx, iy + Math.round(ih*0.50), Math.round(iw*0.90), Math.round(sSize*1.25), trackSub);
+
+  if(spec.en){
+    ctx.fillStyle="#222"; ctx.font=`600 ${eSize}px 'Noto Sans JP'`;
+    wrapCenterTracked(ctx, spec.en, cx, iy + Math.round(ih*0.68), Math.round(iw*0.86), Math.round(eSize*1.20), trackEn);
+  }
 }
 
 function drawProhibit(spec){
-  const pal = SAFETY.prohibition;
   ctx.fillStyle="#fff"; ctx.fillRect(0,0,canvas.width,canvas.height);
-  const pad = Math.round(Math.min(canvas.width, canvas.height)*0.06);
+  const pad = Math.round(Math.min(canvas.width, canvas.height) * 0.06);
   const x=pad,y=pad,w=canvas.width-pad*2,h=canvas.height-pad*2;
-  ctx.fillStyle=pal.base; roundRect(ctx,x,y,w,h,22,true,false);
-  ctx.save(); ctx.fillStyle = stripePattern("#fff", pal.base); ctx.globalAlpha=0.25;
-  roundRect(ctx,x+14,y+14,w-28,h-28,18,true,false); ctx.restore();
 
-  // 左侧小插图
-  drawLineIcon(inferIconType(spec.icon||"立入禁止"), x+24, y+24, Math.min(w*0.28, 520), h-48, "#fff");
+  // 白卡
+  ctx.save(); ctx.shadowColor="rgba(0,0,0,.08)"; ctx.shadowBlur=24; ctx.shadowOffsetY=10;
+  ctx.fillStyle="#fff"; roundRect(ctx,x,y,w,h,26,true,false); ctx.restore();
 
-  // 文案（白字）
-  const tx = x + Math.min(w*0.28, 520) + 56, maxW = w - (tx - x) - 40;
-  ctx.fillStyle="#fff"; ctx.font=`800 ${Math.round(h*0.13)}px 'Noto Sans JP'`;
-  wrap(ctx, spec.title||"仮置き禁止", tx, y+Math.round(h*0.18), maxW, Math.round(h*0.15));
-  ctx.font=`600 ${Math.round(h*0.06)}px 'Noto Sans JP'`;
-  wrap(ctx, spec.subtitle||"この範囲に物を置かないでください。", tx, y+Math.round(h*0.36), maxW, Math.round(h*0.08));
-  if(spec.en) wrap(ctx, spec.en, tx, y+Math.round(h*0.50), maxW, Math.round(h*0.07));
-  if(spec.extra){ ctx.font=`600 ${Math.round(h*0.05)}px 'Noto Sans JP'`;
-    wrap(ctx, spec.extra, tx, y+Math.round(h*0.60), maxW, Math.round(h*0.06)); }
+  // 红底渐变 + 白斜纹
+  const inPad = Math.round(Math.min(w,h)*0.06);
+  const ix=x+inPad, iy=y+inPad, iw=w-inPad*2, ih=h-inPad*2;
+  const grad = ctx.createLinearGradient(ix,iy, ix, iy+ih);
+  grad.addColorStop(0, "#cf3a3a"); grad.addColorStop(1, "#c62828");
+  ctx.fillStyle=grad; roundRect(ctx,ix,iy,iw,ih,20,true,false);
+
+  ctx.save(); ctx.fillStyle = stripePattern("#fff", "rgba(0,0,0,0)"); ctx.globalAlpha=0.27;
+  roundRect(ctx,ix+18,iy+18,iw-36,ih-36,16,true,false); ctx.restore();
+
+  // 文案（白字 + 字距）
+  const cx = x + w/2;
+  const tSize = Math.round(ih*0.19);
+  const sSize = Math.round(ih*0.095);
+  const eSize = Math.round(ih*0.085);
+  const trackTitle = Math.max(2, Math.round(tSize*0.03));
+  const trackSub   = Math.max(1, Math.round(sSize*0.03));
+  const trackEn    = Math.max(1, Math.round(eSize*0.025));
+
+  ctx.fillStyle="#fff"; ctx.textAlign="center";
+  ctx.font=`800 ${tSize}px 'Noto Sans JP'`;
+  wrapCenterTracked(ctx, spec.title||"仮置き禁止", cx, iy + Math.round(ih*0.30), Math.round(iw*0.88), Math.round(tSize*1.15), trackTitle);
+
+  ctx.font=`600 ${sSize}px 'Noto Sans JP'`;
+  wrapCenterTracked(ctx, spec.subtitle||"この範囲に物を置かないでください。", cx, iy + Math.round(ih*0.48), Math.round(iw*0.88), Math.round(sSize*1.25), trackSub);
+
+  if(spec.en){
+    ctx.font=`600 ${eSize}px 'Noto Sans JP'`;
+    wrapCenterTracked(ctx, spec.en, cx, iy + Math.round(ih*0.64), Math.round(iw*0.86), Math.round(eSize*1.2), trackEn);
+  }
 }
 
 function drawStop(spec){
   ctx.fillStyle="#fff"; ctx.fillRect(0,0,canvas.width,canvas.height);
   const pad = Math.round(Math.min(canvas.width, canvas.height)*0.06);
   const x=pad,y=pad,w=canvas.width-pad*2,h=canvas.height-pad*2;
-  ctx.save(); ctx.fillStyle = stripePattern("#ff7a00", "#fff"); ctx.globalAlpha=0.35;
-  roundRect(ctx,x,y,w,h,22,true,false); ctx.restore();
-  ctx.strokeStyle="#ddd"; ctx.lineWidth=6; roundRect(ctx,x+4,y+4,w-8,h-8,20,false,true);
 
-  // 左侧插图：红色倒三角
-  const side = Math.min(w*0.26, h*0.40);
-  const cx = x + side*1.2, cy = y + h*0.42;
-  ctx.fillStyle = "#d32f2f"; ctx.beginPath();
-  ctx.moveTo(cx, cy - side/1.7); ctx.lineTo(cx - side/1.2, cy + side/1.7);
-  ctx.lineTo(cx + side/1.2, cy + side/1.7); ctx.closePath(); ctx.fill();
+  // 白卡 + 橙斜纹边 + 细描边
+  ctx.save(); ctx.shadowColor="rgba(0,0,0,.08)"; ctx.shadowBlur=24; ctx.shadowOffsetY=10;
+  ctx.fillStyle="#fff"; roundRect(ctx,x,y,w,h,26,true,false); ctx.restore();
+  ctx.save(); ctx.fillStyle = stripePattern("#ff7a00","#fff"); ctx.globalAlpha=0.38;
+  roundRect(ctx,x+10,y+10,w-20,h-20,20,true,false); ctx.restore();
+  ctx.strokeStyle="#e5e8ee"; ctx.lineWidth=6; roundRect(ctx,x+8,y+8,w-16,h-16,20,false,true);
 
-  // 文案
-  const tx = x + Math.min(w*0.28, 520) + 56, maxW = w - (tx - x) - 40;
-  ctx.fillStyle="#d32f2f"; ctx.font=`800 ${Math.round(h*0.12)}px 'Noto Sans JP'`;
-  wrap(ctx, spec.title||"止まれ", tx, y+Math.round(h*0.18), maxW, Math.round(h*0.13));
-  ctx.font=`600 ${Math.round(h*0.06)}px 'Noto Sans JP'`;
-  wrap(ctx, spec.subtitle||"一時停止", tx, y+Math.round(h*0.32), maxW, Math.round(h*0.08));
-  wrap(ctx, spec.en||"Stop", tx, y+Math.round(h*0.40), maxW, Math.round(h*0.08));
-}
+  // 红色倒三角
+  const cx = x + w/2;
+  const side = Math.min(w,h)*0.28;
+  const topY = y + Math.round(h*0.22);
+  ctx.fillStyle="#d32f2f"; ctx.beginPath();
+  ctx.moveTo(cx, topY);
+  ctx.lineTo(cx - side/1.15, topY + side*0.95);
+  ctx.lineTo(cx + side/1.15, topY + side*0.95);
+  ctx.closePath(); ctx.fill();
 
-function drawExit(spec){
-  const pal = SAFETY.safe;
-  ctx.fillStyle="#fff"; ctx.fillRect(0,0,canvas.width,canvas.height);
-  const pad = Math.round(Math.min(canvas.width, canvas.height)*0.05);
-  const x=pad,y=pad,w=canvas.width-pad*2,h=canvas.height-pad*2;
+  // 文案（红色 + 字距）
+  const tSize = Math.round(h*0.115), sSize = Math.round(h*0.072), eSize = Math.round(h*0.070);
+  const trackT = Math.max(2, Math.round(tSize*0.03));
+  const trackS = Math.max(1, Math.round(sSize*0.03));
+  const trackE = Math.max(1, Math.round(eSize*0.025));
 
-  ctx.fillStyle=pal.base; roundRect(ctx,x,y,w,h,26,true,false);
-  const hh = Math.round(h*0.22); ctx.fillStyle="#fff"; roundRect(ctx,x+10,y+10,w-20,hh,16,true,false);
-
-  // 头部：简化“奔跑人”线条
-  ctx.save(); ctx.strokeStyle=pal.base; ctx.lineWidth=Math.max(8, Math.round(hh*0.06));
-  ctx.beginPath(); // 头
-  ctx.arc(x+38, y+hh/2, hh*0.14, 0, Math.PI*2); ctx.stroke();
-  ctx.beginPath(); // 身体/四肢
-  ctx.moveTo(x+38, y+hh/2 + hh*0.14); ctx.lineTo(x+38+hh*0.22, y+hh/2 + hh*0.32);
-  ctx.moveTo(x+38+hh*0.10, y+hh/2 + hh*0.10); ctx.lineTo(x+38+hh*0.28, y+hh/2 - hh*0.12);
-  ctx.stroke(); ctx.restore();
-
-  // 标题
-  ctx.fillStyle="#111"; ctx.font=`800 ${Math.round(hh*0.42)}px 'Noto Sans JP'`;
-  ctx.fillText(spec.title||"非常口", x+hh, y+hh/2+10);
-
-  // 正文
-  ctx.fillStyle="#fff"; ctx.font=`700 ${Math.round(h*0.09)}px 'Noto Sans JP'`;
-  wrap(ctx, spec.subtitle||"前に物を置かない", x+30, y+hh+60, w-60, Math.round(h*0.1));
-  ctx.fillStyle="#e8f5ec"; ctx.font=`600 ${Math.round(h*0.06)}px 'Noto Sans JP'`;
-  if(spec.en) wrap(ctx, spec.en, x+30, y+hh+140, w-60, Math.round(h*0.08));
-  if(spec.extra) wrap(ctx, spec.extra, x+30, y+hh+200, w-60, Math.round(h*0.07));
-}
-
-function drawBlue(spec){
-  const blue = SAFETY.mandatory.base, line = SAFETY.mandatory.glyph;
-  ctx.fillStyle = "#fff"; ctx.fillRect(0,0,canvas.width,canvas.height);
-  const pad = Math.round(Math.min(canvas.width, canvas.height)*0.06);
-  const x=pad,y=pad,w=canvas.width-pad*2,h=canvas.height-pad*2;
-
-  // 外白板 + 内蓝板 + 粗边
-  ctx.fillStyle="#fff"; roundRect(ctx,x,y,w,h,28,true,false);
-  ctx.strokeStyle="#cfd8e1"; ctx.lineWidth=6; roundRect(ctx,x+4,y+4,w-8,h-8,24,false,true);
-
-  const bx=x+24, by=y+24, bw=w-48, bh=h-48;
-  ctx.fillStyle = "#eaf2f9"; roundRect(ctx,bx,by,bw,bh,22,true,false);
-  ctx.strokeStyle = blue; ctx.lineWidth = 16; roundRect(ctx,bx+12,by+12,bw-24,bh-24,16,false,true);
-
-  // 左侧线条小插图
-  const cardW = Math.min(bw*0.33, 520);
-  drawLineIcon(inferIconType(spec.icon||spec.title||""), bx+20, by+20, cardW-40, bh-40, line);
-
-  // 右侧标题/副标题
-  const tx = bx + cardW + 40, maxW = bw - cardW - 60;
-  ctx.fillStyle = blue; ctx.font = `800 ${Math.round(bh*0.22)}px 'Noto Sans JP'`;
-  wrap(ctx, spec.title || "置場", tx, by + Math.round(bh*0.20), maxW, Math.round(bh*0.24));
-
-  ctx.fillStyle = "#2b2f38"; ctx.font = `600 ${Math.round(bh*0.10)}px 'Noto Sans JP'`;
-  wrap(ctx, spec.en || "Station", tx, by + Math.round(bh*0.55), maxW, Math.round(bh*0.12));
-
-  if(spec.extra){
-    ctx.fillStyle = "#445"; ctx.font = `600 ${Math.round(bh*0.08)}px 'Noto Sans JP'`;
-    wrap(ctx, spec.extra, tx, by + Math.round(bh*0.70), maxW, Math.round(bh*0.10));
+  ctx.fillStyle="#d32f2f"; ctx.textAlign="center";
+  ctx.font=`800 ${tSize}px 'Noto Sans JP'`;
+  wrapCenterTracked(ctx, spec.title||"止まれ", cx, y + Math.round(h*0.16), Math.round(w*0.82), Math.round(tSize*1.12), trackT);
+  ctx.font=`700 ${sSize}px 'Noto Sans JP'`;
+  wrapCenterTracked(ctx, spec.subtitle||"一時停止", cx, y + Math.round(h*0.36), Math.round(w*0.82), Math.round(sSize*1.20), trackS);
+  if(spec.en){
+    ctx.font=`700 ${eSize}px 'Noto Sans JP'`;
+    wrapCenterTracked(ctx, spec.en, cx, y + Math.round(h*0.46), Math.round(w*0.82), Math.round(eSize*1.18), trackE);
   }
 }
 
-// ========== 7) 主流程 ==========
+function drawExit(spec){
+  ctx.fillStyle="#237F52"; ctx.fillRect(0,0,canvas.width,canvas.height);
+  const pad = Math.round(Math.min(canvas.width, canvas.height)*0.05);
+  const x=pad,y=pad,w=canvas.width-pad*2,h=canvas.height-pad*2;
+
+  // 绿底 + 白头条
+  const grad = ctx.createLinearGradient(x,y, x, y+h);
+  grad.addColorStop(0, "#268a5c"); grad.addColorStop(1, "#237F52");
+  ctx.fillStyle=grad; roundRect(ctx,x,y,w,h,26,true,false);
+
+  const hh = Math.round(h*0.22);
+  ctx.fillStyle="#fff"; roundRect(ctx,x+12,y+12,w-24,hh,16,true,false);
+
+  // 标题（左对齐大字 + 微 tracking），正文（居中）
+  const cx = x + w/2;
+  ctx.fillStyle="#111"; ctx.textAlign="left"; ctx.font=`800 ${Math.round(hh*0.42)}px 'Noto Sans JP'`;
+  const trackHead = Math.max(2, Math.round(hh*0.42*0.02));
+  drawTrackedLine(ctx, spec.title||"非常口", x+28, y + Math.round(hh*0.58), trackHead);
+
+  ctx.textAlign="center";
+  ctx.fillStyle="#fff"; ctx.font=`700 ${Math.round(h*0.09)}px 'Noto Sans JP'`;
+  wrapCenterTracked(ctx, spec.subtitle||"前に物を置かない", cx, y+hh+60, Math.round(w*0.86), Math.round(h*0.10), Math.round(h*0.09*0.02));
+  if(spec.en){
+    ctx.fillStyle="#e8f5ec"; ctx.font=`600 ${Math.round(h*0.06)}px 'Noto Sans JP'`;
+    wrapCenterTracked(ctx, spec.en, cx, y+hh+140, Math.round(w*0.86), Math.round(h*0.08), Math.round(h*0.06*0.02));
+  }
+}
+
+function drawBlue(spec){
+  // 信息板：纯文字（与你样例一致），不画人物
+  ctx.fillStyle="#fff"; ctx.fillRect(0,0,canvas.width,canvas.height);
+  const pad = Math.round(Math.min(canvas.width, canvas.height)*0.06);
+  const x=pad,y=pad,w=canvas.width-pad*2,h=canvas.height-pad*2;
+
+  // 外白卡 + 细描边
+  ctx.fillStyle="#fff"; roundRect(ctx,x,y,w,h,28,true,false);
+  ctx.strokeStyle="#cfd8e1"; ctx.lineWidth=6; roundRect(ctx,x+6,y+6,w-16,h-16,24,false,true);
+
+  // 内蓝板（淡底 + 粗边）
+  const bx=x+26, by=y+26, bw=w-52, bh=h-52;
+  ctx.fillStyle="#eaf2f9"; roundRect(ctx,bx,by,bw,bh,22,true,false);
+  ctx.strokeStyle="#005387"; ctx.lineWidth=18; roundRect(ctx,bx+14,by+14,bw-28,bh-28,18,false,true);
+
+  // 纯文字层级
+  const cx = bx + bw/2;
+  const tSize = Math.round(bh*0.23);
+  const eSize = Math.round(bh*0.10);
+  const sSize = Math.round(bh*0.085);
+  const trackT = Math.max(2, Math.round(tSize*0.025));
+  const trackE = Math.max(1, Math.round(eSize*0.02));
+  const trackS = Math.max(1, Math.round(sSize*0.02));
+
+  ctx.fillStyle="#005387"; ctx.textAlign="center"; ctx.font=`800 ${tSize}px 'Noto Sans JP'`;
+  wrapCenterTracked(ctx, spec.title || "案内", cx, by + Math.round(bh*0.22), Math.round(bw*0.86), Math.round(tSize*1.18), trackT);
+
+  if (spec.en){
+    ctx.fillStyle="#2b2f38"; ctx.font=`600 ${eSize}px 'Noto Sans JP'`;
+    wrapCenterTracked(ctx, spec.en, cx, by + Math.round(bh*0.56), Math.round(bw*0.80), Math.round(eSize*1.16), trackE);
+  }
+  if (spec.subtitle){
+    ctx.fillStyle="#445"; ctx.font=`600 ${sSize}px 'Noto Sans JP'`;
+    wrapCenterTracked(ctx, spec.subtitle, cx, by + Math.round(bh*0.72), Math.round(bw*0.82), Math.round(sSize*1.16), trackS);
+  }
+}
+
+// =================== 6) 主流程：自然语言 → 规格 → 渲染 ===================
 async function generatePoster(userText){
   addMsg("user", userText);
-  const size = sizeSel.value || "A3横"; const hiRes = !!hiResCb.checked;
-  setCanvasSize(size, hiRes);
+
+  // 固定 A3 横 @ 200dpi
+  setCanvasA3(true);
 
   let spec = {};
-  if(engine){
+  if (engine){
     try{
       const reply = await engine.chat.completions.create({
         messages:[
           { role:"system", content: SYSTEM_PROMPT },
-          { role:"user", content: `${userText}\nサイズ:${size}` }
+          { role:"user",   content: `${userText}\nサイズ:A3横` }
         ],
         temperature: 0.2, max_tokens: 400, stream: false,
       });
       spec = JSON.parse(reply.choices[0].message.content);
-    }catch(e){ console.warn(e); }
+    }catch(e){
+      console.warn("LLM parse fail:", e);
+    }
   }
 
-  // Fallback：当小模型不可用或输出不完整时，靠关键词推断
+  // Fallback：更稳的关键词推断（不暴露模板）
   if(!spec.style){
-    const t=userText||"";
-    if(/止まれ|一時停止|stop/i.test(t))         spec.style="stop_triangle";
-    else if(/仮置|禁止|立入禁止/.test(t))        spec.style="prohibit_red";
-    else if(/非常口|避難口|exit/i.test(t))       spec.style="exit_green";
-    else if(/歩行者|通路|置場|station/i.test(t)) spec.style="info_blue";
-    else                                          spec.style="caution_yellow";
-    // 粗略文案
+    const t=(userText||"").toLowerCase();
+    if(/止まれ|一時停止|stop/.test(t)) spec.style="stop_triangle";
+    else if(/禁止|立入禁止|仮置|火気|no /.test(t)) spec.style="prohibit_red";
+    else if(/非常口|避難|assembly|evac/.test(t))    spec.style="exit_green";
+    else if(/置場|通路|案内|レーン|バース|station|area|lane|dock/.test(t)) spec.style="info_blue";
+    else spec.style="caution_yellow";
+
     if(!spec.title){
       if(spec.style==="prohibit_red") spec.title="仮置き禁止";
       else if(spec.style==="exit_green") spec.title="非常口";
       else if(spec.style==="stop_triangle") spec.title="止まれ";
-      else if(spec.style==="info_blue") spec.title="歩行者通路";
+      else if(spec.style==="info_blue") spec.title="案内";
       else spec.title="通行注意";
     }
     spec.subtitle = spec.subtitle || "周囲確認を徹底しましょう。";
   }
+
+  // 明确不使用“人物”
+  spec.icon = "none";
 
   addMsg("assistant", `スタイル：${spec.style}／タイトル：${spec.title}／英語：${spec.en||""}`);
 
@@ -393,10 +377,7 @@ async function generatePoster(userText){
   else                                   drawCaution(spec);
 }
 
-sendBtn.onclick = ()=>{ const t=promptEl.value.trim(); if(t) generatePoster(t); };
-promptEl.addEventListener("keydown",(e)=>{ if(e.key==="Enter") sendBtn.click(); });
-dlBtn.onclick = ()=>{ const url=canvas.toDataURL("image/png"); const a=document.createElement("a"); a.href=url; a.download = "poster.png"; a.click(); };
-
-// 初始预览
-setCanvasSize("A3横", true);
+// =================== 7) 初始预览 ===================
+setCanvasA3(true);
 drawCaution({ title:"通行注意", subtitle:"走行車両あり。周囲確認を徹底。", en:"Watch for vehicles" });
+addMsg("assistant","自然言語で指示してください。例：「シャッターライン内は仮置き禁止。英語併記。」/「非常口 前に物を置かない」/「止まれ 一時停止 英語」");
