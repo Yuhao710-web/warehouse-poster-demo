@@ -197,5 +197,199 @@ function drawProhibit(spec){
   ctx.fillStyle=grad; roundRect(ctx,ix,iy,iw,ih,20,true,false);
 
   ctx.save(); ctx.fillStyle = stripePattern("#fff", "rgba(0,0,0,0)"); ctx.globalAlpha=0.20; // ↓ 由 0.27
-  roundRect(ctx,ix+18,iy+18,iw-36,ih-36,16,
+  roundRect(ctx,ix+18,iy+18,iw-36,ih-36,16,true,false); ctx.restore();
 
+  const cx = x + w/2;
+  const tSize = Math.round(ih*0.19);
+  const sSize = Math.round(ih*0.095);
+  const eSize = Math.round(ih*0.085);
+  const trackTitle = Math.max(2, Math.round(tSize*0.020));
+  const trackSub   = Math.max(1, Math.round(sSize*0.018));
+  const trackEn    = Math.max(1, Math.round(eSize*0.018));
+
+  ctx.fillStyle="#fff"; ctx.textAlign="center";
+  ctx.font=`800 ${tSize}px 'Noto Sans JP'`;
+  wrapCenterTracked(ctx, spec.title||"仮置き禁止", cx, iy + Math.round(ih*0.30), Math.round(iw*0.86), Math.round(tSize*1.26), trackTitle);
+
+  ctx.font=`600 ${sSize}px 'Noto Sans JP'`;
+  wrapCenterTracked(ctx, spec.subtitle||"この範囲に物を置かないでください。", cx, iy + Math.round(ih*0.50), Math.round(iw*0.86), Math.round(sSize*1.34), trackSub);
+
+  if(spec.en){
+    ctx.font=`600 ${eSize}px 'Noto Sans JP'`;
+    wrapCenterTracked(ctx, spec.en, cx, iy + Math.round(ih*0.68), Math.round(iw*0.84), Math.round(eSize*1.30), trackEn);
+  }
+}
+
+// === 3) 止まれ（白/橙/红）— 文字与三角形分区，绝不互相“打架” + 更柔和 ===
+function drawStop(spec){
+  ctx.fillStyle="#fff"; ctx.fillRect(0,0,canvas.width,canvas.height);
+  const pad = Math.round(Math.min(canvas.width, canvas.height)*0.06);
+  const x=pad,y=pad,w=canvas.width-pad*2,h=canvas.height-pad*2;
+
+  // 白卡 + 更淡橙斜纹边 + 细描边
+  ctx.save(); ctx.shadowColor="rgba(0,0,0,.08)"; ctx.shadowBlur=24; ctx.shadowOffsetY=10;
+  ctx.fillStyle="#fff"; roundRect(ctx,x,y,w,h,26,true,false); ctx.restore();
+  ctx.save(); ctx.fillStyle = stripePattern("#ff9a3a","#fff"); ctx.globalAlpha=0.28; // ↓ 由 0.38
+  roundRect(ctx,x+10,y+10,w-20,h-20,20,true,false); ctx.restore();
+  ctx.strokeStyle="#e5e8ee"; ctx.lineWidth=6; roundRect(ctx,x+8,y+8,w-16,h-16,20,false,true);
+
+  // 红色倒三角（更柔一点）
+  const cx = x + w/2;
+  const side = Math.min(w,h)*0.28;
+  const triTop = y + Math.round(h*0.24);        // 稍微往下
+  ctx.fillStyle="#d54040";
+  ctx.beginPath();
+  ctx.moveTo(cx, triTop);
+  ctx.lineTo(cx - side/1.15, triTop + side*0.95);
+  ctx.lineTo(cx + side/1.15, triTop + side*0.95);
+  ctx.closePath(); ctx.fill();
+
+  // 文案区：标题在三角上方，副标题/英文在三角下方（彻底避免交叉）
+  const titleY = y + Math.round(h*0.16);
+  const subY   = y + Math.round(h*0.58);
+  const enY    = y + Math.round(h*0.68);
+
+  const tSize = Math.round(h*0.112), sSize = Math.round(h*0.072), eSize = Math.round(h*0.068);
+  const trackT = Math.max(2, Math.round(tSize*0.020));
+  const trackS = Math.max(1, Math.round(sSize*0.018));
+  const trackE = Math.max(1, Math.round(eSize*0.018));
+
+  ctx.fillStyle="#c93535"; ctx.textAlign="center";
+  ctx.font=`800 ${tSize}px 'Noto Sans JP'`;
+  wrapCenterTracked(ctx, spec.title||"止まれ", cx, titleY, Math.round(w*0.82), Math.round(tSize*1.28), trackT);
+
+  ctx.font=`700 ${sSize}px 'Noto Sans JP'`;
+  wrapCenterTracked(ctx, spec.subtitle||"一時停止", cx, subY, Math.round(w*0.82), Math.round(sSize*1.26), trackS);
+
+  if(spec.en){
+    ctx.font=`700 ${eSize}px 'Noto Sans JP'`;
+    wrapCenterTracked(ctx, spec.en, cx, enY, Math.round(w*0.82), Math.round(eSize*1.24), trackE);
+  }
+}
+
+// === 4) 安全/避难（绿）— 更柔和绿 + 行距增大 ===
+function drawExit(spec){
+  ctx.fillStyle="#2f8f66"; ctx.fillRect(0,0,canvas.width,canvas.height); // 柔和底
+  const pad = Math.round(Math.min(canvas.width, canvas.height)*0.05);
+  const x=pad,y=pad,w=canvas.width-pad*2,h=canvas.height-pad*2;
+
+  const grad = ctx.createLinearGradient(x,y, x, y+h);
+  grad.addColorStop(0, "#35a173");
+  grad.addColorStop(1, "#2f8f66");
+  ctx.fillStyle=grad; roundRect(ctx,x,y,w,h,26,true,false);
+
+  const hh = Math.round(h*0.22);
+  ctx.fillStyle="#fff"; roundRect(ctx,x+12,y+12,w-24,hh,16,true,false);
+
+  const cx = x + w/2;
+  ctx.fillStyle="#111"; ctx.textAlign="left";
+  const headSize = Math.round(hh*0.42);
+  const trackHead = Math.max(2, Math.round(headSize*0.02));
+  ctx.font=`800 ${headSize}px 'Noto Sans JP'`;
+  drawTrackedLine(ctx, spec.title||"非常口", x+28, y + Math.round(hh*0.58), trackHead);
+
+  ctx.textAlign="center";
+  ctx.fillStyle="#fff"; const bodySize = Math.round(h*0.088);
+  ctx.font=`700 ${bodySize}px 'Noto Sans JP'`;
+  wrapCenterTracked(ctx, spec.subtitle||"前に物を置かない", cx, y+hh+60, Math.round(w*0.86), Math.round(bodySize*1.32), Math.round(bodySize*0.02));
+
+  if(spec.en){
+    ctx.fillStyle="#edf7f1"; const eSize = Math.round(h*0.060);
+    ctx.font=`600 ${eSize}px 'Noto Sans JP'`;
+    wrapCenterTracked(ctx, spec.en, cx, y+hh+150, Math.round(w*0.86), Math.round(eSize*1.28), Math.round(eSize*0.02));
+  }
+}
+
+// === 5) 信息板（蓝）— 更柔和蓝 + 纯文字 + 行距加大 ===
+function drawBlue(spec){
+  ctx.fillStyle="#fff"; ctx.fillRect(0,0,canvas.width,canvas.height);
+  const pad = Math.round(Math.min(canvas.width, canvas.height)*0.06);
+  const x=pad,y=pad,w=canvas.width-pad*2,h=canvas.height-pad*2;
+
+  ctx.fillStyle="#fff"; roundRect(ctx,x,y,w,h,28,true,false);
+  ctx.strokeStyle="#d8dee6"; ctx.lineWidth=6; roundRect(ctx,x+6,y+6,w-16,h-16,24,false,true);
+
+  const bx=x+26, by=y+26, bw=w-52, bh=h-52;
+  ctx.fillStyle="#eff5fb"; roundRect(ctx,bx,by,bw,bh,22,true,false);          // 更柔的底
+  ctx.strokeStyle="#1e6da0"; ctx.lineWidth=16; roundRect(ctx,bx+14,by+14,bw-28,bh-28,18,false,true); // 更柔的蓝边
+
+  const cx = bx + bw/2;
+  const tSize = Math.round(bh*0.23);
+  const eSize = Math.round(bh*0.10);
+  const sSize = Math.round(bh*0.085);
+  const trackT = Math.max(2, Math.round(tSize*0.020));
+  const trackE = Math.max(1, Math.round(eSize*0.018));
+  const trackS = Math.max(1, Math.round(sSize*0.018));
+
+  ctx.fillStyle="#2b6f9d"; ctx.textAlign="center"; ctx.font=`800 ${tSize}px 'Noto Sans JP'`;
+  wrapCenterTracked(ctx, spec.title || "案内", cx, by + Math.round(bh*0.22), Math.round(bw*0.84), Math.round(tSize*1.26), trackT);
+
+  if (spec.en){
+    ctx.fillStyle="#344055"; ctx.font=`600 ${eSize}px 'Noto Sans JP'`;
+    wrapCenterTracked(ctx, spec.en, cx, by + Math.round(bh*0.56), Math.round(bw*0.78), Math.round(eSize*1.24), trackE);
+  }
+  if (spec.subtitle){
+    ctx.fillStyle="#4a5366"; ctx.font=`600 ${sSize}px 'Noto Sans JP'`;
+    wrapCenterTracked(ctx, spec.subtitle, cx, by + Math.round(bh*0.73), Math.round(bw*0.80), Math.round(sSize*1.24), trackS);
+  }
+}
+
+// =================== 6) 主流程：自然语言 → 规格 → 渲染 ===================
+async function generatePoster(userText){
+  addMsg("user", userText);
+
+  // 固定 A3 横 @ 200dpi
+  setCanvasA3(true);
+
+  let spec = {};
+  if (engine){
+    try{
+      const reply = await engine.chat.completions.create({
+        messages:[
+          { role:"system", content: SYSTEM_PROMPT },
+          { role:"user",   content: `${userText}\nサイズ:A3横` }
+        ],
+        temperature: 0.2, max_tokens: 400, stream: false,
+      });
+      spec = JSON.parse(reply.choices[0].message.content);
+    }catch(e){
+      console.warn("LLM parse fail:", e);
+    }
+  }
+
+  // Fallback：更稳的关键词推断（不暴露模板）
+  if(!spec.style){
+    const t=(userText||"").toLowerCase();
+    if(/止まれ|一時停止|stop/.test(t)) spec.style="stop_triangle";
+    else if(/禁止|立入禁止|仮置|火気|no /.test(t)) spec.style="prohibit_red";
+    else if(/非常口|避難|assembly|evac/.test(t))    spec.style="exit_green";
+    else if(/置場|通路|案内|レーン|バース|station|area|lane|dock/.test(t)) spec.style="info_blue";
+    else spec.style="caution_yellow";
+
+    if(!spec.title){
+      if(spec.style==="prohibit_red") spec.title="仮置き禁止";
+      else if(spec.style==="exit_green") spec.title="非常口";
+      else if(spec.style==="stop_triangle") spec.title="止まれ";
+      else if(spec.style==="info_blue") spec.title="案内";
+      else spec.title="通行注意";
+    }
+    spec.subtitle = spec.subtitle || "周囲確認を徹底しましょう。";
+  }
+
+  // 明确不使用“人物”
+  spec.icon = "none";
+
+  addMsg("assistant", `スタイル：${spec.style}／タイトル：${spec.title}／英語：${spec.en||""}`);
+
+  if(spec.style==="caution_yellow")      drawCaution(spec);
+  else if(spec.style==="prohibit_red")   drawProhibit(spec);
+  else if(spec.style==="stop_triangle")  drawStop(spec);
+  else if(spec.style==="exit_green")     drawExit(spec);
+  else if(spec.style==="info_blue")      drawBlue(spec);
+  else                                   drawCaution(spec);
+}
+
+// =================== 7) 初始预览 ===================
+setCanvasA3(true);
+drawCaution({ title:"通行注意", subtitle:"走行車両あり。周囲確認を徹底。", en:"Watch for vehicles" });
+addMsg("assistant","自然言語で指示してください。例：「シャッターライン内は仮置き禁止。英語併記。」/「非常口 前に物を置かない」/「止まれ 一時停止 英語」");
