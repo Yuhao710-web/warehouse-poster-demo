@@ -1,3 +1,6 @@
+/* =========================
+ * WebLLM 初始化
+ * ========================= */
 let engine;
 (async () => {
   try {
@@ -8,6 +11,9 @@ let engine;
   } catch (e) { console.warn("WebLLM init failed:", e); }
 })();
 
+/* =========================
+ * DOM & Canvas
+ * ========================= */
 const messagesEl = document.getElementById("messages"),
       promptEl   = document.getElementById("prompt"),
       sendBtn    = document.getElementById("send"),
@@ -15,12 +21,22 @@ const messagesEl = document.getElementById("messages"),
       ctx        = canvas.getContext("2d"),
       dlBtn      = document.getElementById("download");
 
-/** --- 可配置参数（你可以按需调整） --- **/
+function addMsg(role, text){
+  const div = document.createElement("div");
+  div.className = "msg " + (role === "user" ? "user" : "bot");
+  div.textContent = text;
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+/* =========================
+ * 全局配置
+ * ========================= */
 const SETTINGS = {
   canvas: { width: 1404, height: 993 },      // A3横向≈150dpi
   bandHeight: 160,                            // 顶部色带高度
   marginX: 60,                                // 文本左右留白
-  stripe: {
+  stripe: {                                   // 斜线警示边框参数
     width: 22,                                // 斜纹宽度
     gap: 28,                                  // 斜纹间距
     frame: 16                                 // 外框线宽（条纹边框时）
@@ -41,19 +57,17 @@ const SETTINGS = {
     enTitle: 42, enSubtitle: 40, enNote: 38,
     zhTitle: 38, zhBody: 36
   },
-  paragraphSpacing: 12                        // 不同语言块之间的额外间距
+  paragraphSpacing: 12,                       // 段落之间的额外间距
+  autoFit: {                                  // 标题字号自适配范围
+    jpTitle: { minPx: 36, maxPx: 84, step: 2 },
+    enTitle: { minPx: 30, maxPx: 48, step: 2 },
+    zhTitle: { minPx: 30, maxPx: 46, step: 2 }
+  }
 };
 
-/** 消息气泡 **/
-function addMsg(role, text){
-  const div = document.createElement("div");
-  div.className = "msg " + (role === "user" ? "user" : "bot");
-  div.textContent = text;
-  messagesEl.appendChild(div);
-  messagesEl.scrollTop = messagesEl.scrollHeight;
-}
-
-/** 安全类别 → 主色（保持原有语义） **/
+/* =========================
+ * 安全类别配色
+ * ========================= */
 const SAFETY = {
   warning:     { base: "#F9A900" }, // 注意・警告（黄）
   prohibition: { base: "#C62828" }, // 禁止・停止（赤）
@@ -63,7 +77,9 @@ const SAFETY = {
   neutral:     { base: "#2B2B2C" }  // 中立（黑/灰）
 };
 
-/** 系统提示（自由输入模式 + 多语言字段 + 类别/边框） **/
+/* =========================
+ * LLM 系统提示（自由输入→结构化JSON）
+ * ========================= */
 const SYSTEM_PROMPT = `
 あなたは倉庫安全ポスターのコピーライター兼DTP担当です。
 ユーザーの要望を倉庫現場の掲示ポスターに最適化し、必ず次のJSONのみで返答してください（前後に説明や余計な文字を含めない）。
@@ -85,22 +101,32 @@ const SYSTEM_PROMPT = `
 - EN/ZH は可能な限り補完（なければ空文字で可）
 `;
 
-/** 文本换行绘制（居中） **/
-function wrapAndDrawText(text, font, color, centerX, startY, maxWidth, lineHeight){
-  if (!text) return startY;
+/* =========================
+ * 文本工具：字号自适应 + 换行
+ * ========================= */
+function withFontSize(fontSpec, px){
+  return fontSpec.replace(/(?<=\s)(\d+(?:\.\d+)?)px(?=\s*['"]?)/, `${px}px`);
+}
+function canFitSingleLine(text, fontSpec, maxWidth){
+  ctx.font = fontSpec;
+  return ctx.measureText(text).width <= maxWidth;
+}
+function fitSingleLine(text, baseFont, maxWidth, {minPx=28, maxPx=80, step=2}={}){
+  for(let px=maxPx; px>=minPx; px-=step){
+    const f = withFontSize(baseFont, px);
+    if (canFitSingleLine(text, f, maxWidth)) return { font: f, size: px, wrapped: false };
+  }
+  return { font: withFontSize(baseFont, minPx), size: minPx, wrapped: true };
+}
+function wrapLines(text, font, maxWidth) {
+  if (!text) return [];
   ctx.font = font;
-  ctx.fillStyle = color;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "alphabetic";
-
-  const words = text.split(/\\s+/);
+  const words = text.split(/\s+/);
   const lines = [];
   let line = "";
-
-  for (let i = 0; i < words.length; i++) {
+  for (let i=0; i<words.length; i++){
     const test = line ? line + " " + words[i] : words[i];
-    const w = ctx.measureText(test).width;
-    if (w > maxWidth && line) {
+    if (ctx.measureText(test).width > maxWidth && line) {
       lines.push(line);
       line = words[i];
     } else {
@@ -108,36 +134,27 @@ function wrapAndDrawText(text, font, color, centerX, startY, maxWidth, lineHeigh
     }
   }
   if (line) lines.push(line);
-
-  // 逐行居中绘制
-  let y = startY;
-  for (const ln of lines) {
-    ctx.fillText(ln, centerX, y);
-    y += lineHeight;
-  }
-  return y;
+  return lines;
 }
 
-/** 画斜线警示边框（可配置） **/
+/* =========================
+ * 边框：斜线警示 & 实线
+ * ========================= */
 function drawStripeBorder(ctx, w, h, color){
   const { width: stripeW, gap, frame } = SETTINGS.stripe;
-
   ctx.save();
   // 外框
   ctx.lineWidth = frame;
   ctx.strokeStyle = color;
   ctx.strokeRect(10, 10, w - 20, h - 20);
-
-  // 内侧斜纹区域
+  // 斜纹区域
   ctx.beginPath();
   ctx.rect(28, 28, w - 56, h - 56);
   ctx.clip();
-
   // 斜纹
   ctx.strokeStyle = color;
   ctx.lineWidth = stripeW;
   const diag = Math.sqrt(w*w + h*h);
-  ctx.translate(0, 0);
   ctx.rotate(-Math.PI / 6);
   for (let x = -diag; x < diag * 2; x += stripeW + gap) {
     ctx.beginPath();
@@ -148,19 +165,17 @@ function drawStripeBorder(ctx, w, h, color){
   ctx.restore();
 }
 
-/** 主绘制：居中 + 自动换行 + 可配置条纹/边框 **/
+/* =========================
+ * 主绘制：整体水平+垂直居中
+ * ========================= */
 function drawPoster(spec){
   const { width: W, height: H } = SETTINGS.canvas;
   canvas.width = W; canvas.height = H;
 
-  // 背景
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0,0,W,H);
-
-  // 顶部色带
+  // 背景 & 顶部色带
+  ctx.fillStyle = "#fff"; ctx.fillRect(0,0,W,H);
   const band = SAFETY[spec.category]?.base || "#999";
-  ctx.fillStyle = band;
-  ctx.fillRect(0,0,W,SETTINGS.bandHeight);
+  ctx.fillStyle = band; ctx.fillRect(0,0,W,SETTINGS.bandHeight);
 
   // 边框
   if (spec.border === "stripes") {
@@ -170,45 +185,73 @@ function drawPoster(spec){
     ctx.strokeRect(10,10,W-20,H-20);
   }
 
-  // 文案绘制（居中）
+  // 文本准备（标题先单行自适应；全部块居中）
   const maxWidth = W - SETTINGS.marginX * 2;
   const centerX  = W / 2;
-  let y = SETTINGS.bandHeight + 60; // 从色带下方开始
+  const blocks = [];
+  function addBlock(lines, font, color, lh){
+    if(lines && lines.length) blocks.push({lines, font, color, lineHeight: lh});
+  }
 
-  // JP
-  const jp = spec.jp || {};
-  if (jp.title)   y = wrapAndDrawText(jp.title,    SETTINGS.fonts.jpTitle,    "#111", centerX, y, maxWidth, SETTINGS.lineHeights.jpTitle);
-  if (jp.subtitle) y = wrapAndDrawText(jp.subtitle, SETTINGS.fonts.jpSubtitle, "#333", centerX, y, maxWidth, SETTINGS.lineHeights.jpSubtitle);
-  if (jp.note)     y = wrapAndDrawText(jp.note,     SETTINGS.fonts.jpNote,     "#444", centerX, y, maxWidth, SETTINGS.lineHeights.jpNote);
+  const jp=spec.jp||{}, en=spec.en||{}, zh=spec.zh||{};
 
-  // block spacing
-  y += SETTINGS.paragraphSpacing;
+  // JP Title 单行自适应→必要时换行
+  if (jp.title) {
+    const fit = fitSingleLine(jp.title, SETTINGS.fonts.jpTitle, maxWidth, SETTINGS.autoFit.jpTitle);
+    const lines = fit.wrapped ? wrapLines(jp.title, fit.font, maxWidth) : [jp.title];
+    addBlock(lines, fit.font, "#111", SETTINGS.lineHeights.jpTitle);
+  }
+  if (jp.subtitle) addBlock(wrapLines(jp.subtitle, SETTINGS.fonts.jpSubtitle, maxWidth), SETTINGS.fonts.jpSubtitle, "#333", SETTINGS.lineHeights.jpSubtitle);
+  if (jp.note)     addBlock(wrapLines(jp.note,     SETTINGS.fonts.jpNote,     maxWidth), SETTINGS.fonts.jpNote,     "#444", SETTINGS.lineHeights.jpNote);
 
   // EN
-  const en = spec.en || {};
-  if (en.title)    y = wrapAndDrawText(en.title,    SETTINGS.fonts.enTitle,    "#1a1a1a", centerX, y, maxWidth, SETTINGS.lineHeights.enTitle);
-  if (en.subtitle) y = wrapAndDrawText(en.subtitle, SETTINGS.fonts.enSubtitle, "#1a1a1a", centerX, y, maxWidth, SETTINGS.lineHeights.enSubtitle);
-  if (en.note)     y = wrapAndDrawText(en.note,     SETTINGS.fonts.enNote,     "#222",    centerX, y, maxWidth, SETTINGS.lineHeights.enNote);
-
-  // block spacing
-  y += SETTINGS.paragraphSpacing;
+  if (en.title) {
+    const fit = fitSingleLine(en.title, SETTINGS.fonts.enTitle, maxWidth, SETTINGS.autoFit.enTitle);
+    const lines = fit.wrapped ? wrapLines(en.title, fit.font, maxWidth) : [en.title];
+    addBlock(lines, fit.font, "#1a1a1a", SETTINGS.lineHeights.enTitle);
+  }
+  if (en.subtitle) addBlock(wrapLines(en.subtitle, SETTINGS.fonts.enSubtitle, maxWidth), SETTINGS.fonts.enSubtitle, "#1a1a1a", SETTINGS.lineHeights.enSubtitle);
+  if (en.note)     addBlock(wrapLines(en.note,     SETTINGS.fonts.enNote,     maxWidth), SETTINGS.fonts.enNote,     "#222",    SETTINGS.lineHeights.enNote);
 
   // ZH
-  const zh = spec.zh || {};
-  if (zh.title)    y = wrapAndDrawText(zh.title,    SETTINGS.fonts.zhTitle, "#222", centerX, y, maxWidth, SETTINGS.lineHeights.zhTitle);
-  if (zh.subtitle) y = wrapAndDrawText(zh.subtitle, SETTINGS.fonts.zhBody,  "#222", centerX, y, maxWidth, SETTINGS.lineHeights.zhBody);
-  if (zh.note)     y = wrapAndDrawText(zh.note,     SETTINGS.fonts.zhBody,  "#222", centerX, y, maxWidth, SETTINGS.lineHeights.zhBody);
+  if (zh.title) {
+    const fit = fitSingleLine(zh.title, SETTINGS.fonts.zhTitle, maxWidth, SETTINGS.autoFit.zhTitle);
+    const lines = fit.wrapped ? wrapLines(zh.title, fit.font, maxWidth) : [zh.title];
+    addBlock(lines, fit.font, "#222", SETTINGS.lineHeights.zhTitle);
+  }
+  if (zh.subtitle) addBlock(wrapLines(zh.subtitle, SETTINGS.fonts.zhBody, maxWidth), SETTINGS.fonts.zhBody, "#222", SETTINGS.lineHeights.zhBody);
+  if (zh.note)     addBlock(wrapLines(zh.note,     SETTINGS.fonts.zhBody, maxWidth), SETTINGS.fonts.zhBody, "#222", SETTINGS.lineHeights.zhBody);
+
+  // 计算总高度并垂直居中
+  let totalH = 0;
+  for(const b of blocks){ totalH += b.lines.length*b.lineHeight + SETTINGS.paragraphSpacing; }
+  totalH -= SETTINGS.paragraphSpacing; // 最后一个块不加间距
+  let y = (H + SETTINGS.bandHeight)/2 - totalH/2;
+
+  // 绘制（中心对齐）
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  for(const b of blocks){
+    ctx.font = b.font;
+    ctx.fillStyle = b.color;
+    for(const ln of b.lines){
+      ctx.fillText(ln, centerX, y);
+      y += b.lineHeight;
+    }
+    y += SETTINGS.paragraphSpacing;
+  }
 }
 
-/** 解析 JSON（兼容 ``` 或纯文本返回） **/
+/* =========================
+ * JSON 解析 & 生成流程
+ * ========================= */
 function parseJSONLoose(text){
   if (!text) return null;
-  const m = text.match(/```(?:json)?\\s*([\\s\\S]*?)```/i);
+  const m = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const body = m ? m[1] : text;
   try { return JSON.parse(body); } catch { return null; }
 }
 
-/** 生成流程（自由输入） **/
 async function generatePoster(userText){
   addMsg("user", userText);
   let data;
@@ -225,7 +268,7 @@ async function generatePoster(userText){
     data = parseJSONLoose(raw);
   }
 
-  // 合理回退
+  // 回退：给出安全合理的默认
   if (!data) {
     data = {
       jp: { title: "通行注意", subtitle: "走行車両あり" },
@@ -259,12 +302,19 @@ async function generatePoster(userText){
   drawPoster(spec);
 }
 
-/** 事件绑定与下载 **/
+/* =========================
+ * 事件 & 初始海报
+ * ========================= */
 sendBtn.onclick = () => { const t = promptEl.value.trim(); if (t) generatePoster(t); };
 promptEl.addEventListener("keydown", e => { if (e.key === "Enter") sendBtn.click(); });
-dlBtn.onclick = () => { const url = canvas.toDataURL("image/png"); const a = document.createElement("a"); a.href = url; a.download = "poster.png"; a.click(); };
 
-/** 初始海报（居中+换行） **/
+dlBtn.onclick = () => {
+  const url = canvas.toDataURL("image/png");
+  const a = document.createElement("a");
+  a.href = url; a.download = "poster.png"; a.click();
+};
+
+// 初始海报（演示）
 drawPoster({
   jp: { title: "安全第一", subtitle: "指差呼称・周囲確認・事故ゼロへ" },
   en: { subtitle: "Safety First" },
