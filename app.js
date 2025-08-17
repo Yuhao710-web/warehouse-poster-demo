@@ -67,7 +67,7 @@ const SETTINGS = {
     panelBg:  "#ffffff",
     ringBg:   "#ffffff"
   },
-  // ★ 新增：枠（斜线/实线）颜色覆盖（仅当前海报）
+  // 枠（斜线/实线）颜色覆盖（仅当前海报）
   borderColorOverride: null
 };
 
@@ -82,13 +82,9 @@ const SAFETY = {
   fire:        { base: "#C62828" },
   neutral:     { base: "#2B2B2C" }
 };
-// —— 默认主题 & 当前主题（颜色仅对当前海报生效；新建/完成时重置）——
 const DEFAULT_THEME  = JSON.parse(JSON.stringify(SAFETY));
 let   CURRENT_THEME  = JSON.parse(JSON.stringify(DEFAULT_THEME));
-// —— 背景/面板/空隙 默认色 —— //
 const DEFAULT_COLORS = { canvasBg: "#ffffff", panelBg: "#ffffff", ringBg: "#ffffff" };
-
-/* 仅对当前海报的配色提示（日文） */
 const COLOR_SCOPE_NOTE = "※ 配色の変更は「今回のポスター」のみ有効です。次回の新規作成時に既定色へ自動的に戻ります。";
 
 /* =========================
@@ -126,7 +122,7 @@ function paperFromText(text){
   if (m){
     const n = parseInt(m[1],10);
     const orient = (m[2]||"横").replace(/landscape/i,"横").replace(/portrait/i,"縦");
-    const delta = 3 - n; // 相对 A3 的差
+    const delta = 3 - n;
     const factor = Math.pow(SQRT2, delta);
     const baseW = PAPER_BASE.w * factor, baseH = PAPER_BASE.h * factor;
     const w = Math.round(orient==="横" ? baseW : baseH);
@@ -541,7 +537,7 @@ function drawPoster(spec){
     ? (CURRENT_THEME[spec.category]?.base || "#999")
     : (SETTINGS.band.colorOverride || "#999");
 
-  // ★ 枠线颜色 = 覆盖色 ||（默认沿用色带）
+  // 枠线颜色 = 覆盖色 ||（默认沿用色带）
   const borderColor = SETTINGS.borderColorOverride || bandColor;
 
   // 顶部色带
@@ -552,7 +548,7 @@ function drawPoster(spec){
 
   // 内容面板矩形（精确包围盒+padding）
   const centerX = W/2;
-  const firstBaselineY = (H + bandH)/2 - L.totalH/2;  // 在 bandH ~ H 范围垂直居中
+  const firstBaselineY = (H + bandH)/2 - L.totalH/2;
   const contentTop    = firstBaselineY - L.firstAscent;
   const contentBottom = firstBaselineY + L.totalH + L.lastDescent;
   const contentHeight = contentBottom - contentTop;
@@ -604,7 +600,7 @@ function pickLangKey(t){
   if (/(日文|日語|日本語|JP)/i.test(t)) return "jp";
   if (/(英文|英語|EN)/i.test(t)) return "en";
   if (/(中文|中国語|ZH)/i.test(t)) return "zh";
-  return "jp"; // 默认改日文
+  return "jp";
 }
 function ensureLang(obj,k){ obj[k] = obj[k] || {}; return obj[k]; }
 function quoted(text){
@@ -627,7 +623,6 @@ function applyTextEdits(text, spec, changes){
   ];
 
   for (const field of fieldRegs){
-    // 引号设定
     let rgSetCN = new RegExp("(?:把)?(?:(日文|日語|日本語|JP|英文|英語|EN|中文|中国語|ZH))?.*?"+field.cn.source+".*?(改成|改为|换成|设置为|设为)", "i");
     let rgSetJP = new RegExp("(?:(日本語|英語|中国語|JP|EN|ZH))?.*?"+field.jp.source+".*?(?:を)?\\s*[「『“\"\']([^「『“\"']+)[」』”\"\']\\s*に(?:する|変更|変える|して)", "i");
 
@@ -687,13 +682,13 @@ function applyTextEdits(text, spec, changes){
 function applyStyleEdits(text, spec, changes){
   let changed = false;
 
-  // ★ 先解析“主题配色”（仅当前海报）
+  // 主题配色（仅当前海报）
   const themeChanged = applyThemeNaturalLanguage(text, changes);
 
-  // ★ 背景/面板/斜纹空隙 颜色
+  // 背景/面板/斜纹空隙 颜色
   const bgColorChanged = applyBackgroundColorNaturalLanguage(text, changes);
 
-  // —— 枠线：想要枠线（未指定类型）→ 默认实线 —— //
+  // 枠线：想要枠线（未指定类型）→ 默认实线
   if (
     /(枠線|枠|縁|ふち|フチ|ボーダー).*(入れて|入れ|付けて|付け|つけて|つけ|追加|足して|欲しい|ほしい|付与|あり)/i.test(text) ||
     /(加(上)?边框|要边框|加框|需要边框|加邊框)/i.test(text) ||
@@ -708,12 +703,22 @@ function applyStyleEdits(text, spec, changes){
     changed = true;
   }
 
-  // —— 明示指定：枠なし / 斜線 / 実線 —— //
+  // ✅ 仅表达“想要斜线”的宽松识别（适用于所有海报）
+  // 例：希望有斜线 / 斜線にして / ストライプ希望 / 要斜线
+  if (/(斜线|斜線|斜紋|ストライプ)/i.test(text) && !/(不要|去掉|去除|無し|いらない)/i.test(text)) {
+    if (spec.border !== "stripes") {
+      spec.border = "stripes";
+      changes.push("枠：斜線（リクエストにより）");
+      changed = true;
+    }
+  }
+
+  // 明示指定：枠なし / 斜線 / 実線
   if (/(无边框|不要边框|枠なし|縁なし)/i.test(text)){ spec.border = "none"; changes.push("枠：なし"); changed = true; }
   if (/(边框|框|枠).*(斜纹|斜線|ストライプ)/i.test(text)){ spec.border = "stripes"; changes.push("枠：斜線"); changed = true; }
   if (/(边框|框|枠).*(实线|實線|実線|ソリッド)/i.test(text)){ spec.border = "solid"; changes.push("枠：実線"); changed = true; }
 
-  // —— 枠（斜線/実線）颜色覆盖 —— //
+  // 枠（斜線/実線）颜色覆盖
   let bcMatch =
     text.match(/(斜纹|斜線|ストライプ|枠線|枠).*(?:颜色|色|カラー|color)\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i) ||
     text.match(/(斜纹|斜線|ストライプ|枠線|枠).*(?:を|は|に|にして|に変更|にする|で|改成|改为)\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i);
@@ -765,7 +770,7 @@ function applyStyleEdits(text, spec, changes){
   if (bandInfo){
     if (bandInfo.off === true) changes.push("上部の色帯：なし");
     if (bandInfo.off === false) changes.push(`上部の色帯：表示, 高さ${SETTINGS.band.height}px`);
-    if (bandInfo.height) changes.push(`上部の色帯 高さ：${bandInfo.height}px`);
+    if (bandInfo.height) changes.push(`上部の色帯 高さ：${SETTINGS.band.height}px`);
     if (bandInfo.color)  changes.push(`上部の色帯 色：${bandInfo.color}`);
     if (bandInfo.follow) changes.push("上部の色帯：カテゴリ連動");
   }
@@ -858,8 +863,6 @@ function formatEditReply(changes){
 function resetRuntimeSettings(){
   CURRENT_THEME  = sc(DEFAULT_THEME);
   SETTINGS.colors = sc(DEFAULT_COLORS);
-
-  // ★ 枠色覆盖重置
   SETTINGS.borderColorOverride = null;
 
   // 顶部色带
@@ -893,19 +896,19 @@ function resetRuntimeSettings(){
 function parseJSONLoose(t){ if(!t) return null; const m=t.match(/```(?:json)?\s*([\s\S]*?)```/i); const body=m?m[1]:t; try{return JSON.parse(body);}catch{return null;} }
 
 async function generatePoster(userText){
-  // —— 1) 完成/结束：立即还原初始状态 —— //
+  // 1) 完成/结束：立即还原初始状态
   if (FINALIZE_RE.test(userText)) {
     resetRuntimeSettings();
     addMsg("bot", "ポスターの仕上げを確認しました。設定を初期状態に戻しました。次回の新規作成は既定から開始します。");
     return;
   }
 
-  // —— 1.5) 枠線リクエスト：常に最優先で反応 —— //
+  // 1.5) 枠線リクエスト：常に最優先で反応
   if (isBorderAddRequest(userText)) {
     if (lastSpec) {
       const spec = JSON.parse(JSON.stringify(lastSpec));
       const had = !!spec.border && spec.border !== "none";
-      if (!had) spec.border = "solid"; // 既定は実線
+      if (!had) spec.border = "solid";
       drawPoster(spec);
       addMsg("bot", had
         ? "すでに枠線があります。種類を変える場合は「枠を斜線に / 枠を実線に」と指示してください。\n" + COLOR_SCOPE_NOTE
@@ -913,7 +916,6 @@ async function generatePoster(userText){
       );
       return;
     } else {
-      // 尚无海报 → 先生成默认，再加枠
       const spec = {
         jp:{title:"通行注意", subtitle:"走行車両あり"},
         en:{subtitle:"Watch for vehicles"},
@@ -926,23 +928,27 @@ async function generatePoster(userText){
     }
   }
 
-  // —— 2) 同一张：尝试“编辑” —— //
+  // 2) 同一张：尝试“编辑”
   if (lastSpec && looksLikeEdit(userText)) {
     const edited = applyEditsNaturalLanguage(userText);
     if (edited){
       addMsg("bot", formatEditReply(edited.summary));
       drawPoster(edited.spec);
       return;
+    } else {
+      // 是编辑意图但没有有效变化 → 不要新建，停在当前张
+      addMsg("bot", formatEditReply([]));
+      return;
     }
   }
 
-  // —— 3) 判断是否“新建一张海报” —— //
+  // 3) 判断是否“新建一张海报”
   if (isNewPosterRequest(userText, lastSpec)) {
     resetRuntimeSettings();
     addMsg("bot", "前のポスターを完了として扱い、設定を初期状態に戻しました。新しい内容で作成します。");
   }
 
-  // —— 4) 新建生成：先重置当前主题与颜色 —— //
+  // 4) 新建生成：先重置当前主题与颜色
   CURRENT_THEME  = sc(DEFAULT_THEME);
   SETTINGS.colors = sc(DEFAULT_COLORS);
   SETTINGS.borderColorOverride = null;
@@ -993,7 +999,6 @@ async function generatePoster(userText){
   const spec = {
     jp: data.jp || {}, en: data.en || {}, zh: data.zh || {},
     category: (["warning","prohibition","mandatory","safe","fire","neutral"].includes(data.category) ? data.category : "warning"),
-    // ★ 默认边框改为 "stripes"
     border: (["stripes","solid","none"].includes(data.border) ? data.border : "stripes"),
     size: data.size || "A3横", icon: data.icon || ""
   };
@@ -1103,6 +1108,6 @@ drawPoster({
   en: { subtitle: "Safety First" },
   zh: { note: "安全第一，谨慎作业" },
   category: "warning",
-  border: "stripes",   // ← 初始就用斜线
+  border: "stripes",
   size: "A3横"
 });
