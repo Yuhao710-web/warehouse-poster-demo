@@ -36,9 +36,10 @@ function addMsg(role, text){
  * ========================= */
 const SETTINGS = {
   canvas: { width: 1404, height: 993 },   // 既定 A3 横
-  bandHeight: 160,
+  // —— 顶部色带（新增自然语言控制的目标）——
+  band: { height: 160, followCategory: true, colorOverride: null }, // height=0 表示关闭
   marginX: 60,
-  stripe: { width: 22, gap: 28, frame: 16, ringGap: 10 }, // ringGap: 斜纹与面板的最小间距
+  stripe: { width: 22, gap: 28, frame: 16, ringGap: 10 },
   solidBorderWidth: 14,
   panel: { paddingX: 42, paddingY: 30, radius: 18, marginX: 40, marginY: 24, shadow: true },
   fonts: {
@@ -98,7 +99,7 @@ const SYSTEM_PROMPT = `
 `;
 
 /* =========================
- * 尺寸解析（自然语言）
+ * 纸张尺寸解析（自然语言）
  * ========================= */
 const SQRT2 = Math.SQRT2;
 const PAPER_BASE = { name:"A3", orient:"横", w:1404, h:993 };
@@ -125,7 +126,67 @@ function applyCanvasSizeBySpec(sizeStr, userText){
 }
 
 /* =========================
- * プリセット
+ * 顶部色带：自然语言控制（新增）
+ * ========================= */
+const COLOR_MAP = {
+  "red":"#C62828","红":"#C62828","紅":"#C62828","赤":"#C62828",
+  "yellow":"#F9A900","黄":"#F9A900","黃":"#F9A900","黄色":"#F9A900",
+  "blue":"#005387","蓝":"#005387","藍":"#005387","青":"#005387","蓝色":"#005387","藍色":"#005387",
+  "green":"#237F52","绿":"#237F52","綠":"#237F52","绿色":"#237F52","緑":"#237F52",
+  "black":"#000000","黑":"#000000","黒":"#000000",
+  "white":"#ffffff","白":"#ffffff",
+  "公司蓝":"#0a84ff","企业蓝":"#0a84ff","品牌蓝":"#0a84ff"
+};
+function resolveColor(word){
+  if (!word) return null;
+  const hex = word.match(/#([0-9a-f]{3,8})/i);
+  if (hex) return "#" + hex[1];
+  const key = word.replace(/颜色?|色$/i,"").toLowerCase();
+  return COLOR_MAP[key] || null;
+}
+function applyBandNaturalLanguage(text){
+  if (!text) return null;
+  let changed = false, info = {};
+
+  // 关闭色带
+  if (/(去掉|取消|不要|关闭|關閉|关闭掉|去除|隱藏)(顶端|顶部)?(色带|色塊|色块|顶部色块|顶端色带|上部色帯|ヘッダー帯|ヘッダー)/i.test(text)){
+    SETTINGS.band.height = 0; changed = true; info.off = true;
+  }
+  // 开启/显示
+  if (/(开启|打开|显示|顯示)(顶端|顶部)?(色带|色塊|色块|顶部色块|顶端色带|上部色帯|ヘッダー帯|ヘッダー)/i.test(text)){
+    if (SETTINGS.band.height === 0) SETTINGS.band.height = 160;
+    changed = true; info.off = false;
+  }
+  // 高度为具体数值
+  const h1 = text.match(/(色带|色塊|色块|顶部色块|顶端色带|上部色帯|ヘッダー帯|ヘッダー).*(?:高(?:度)?|厚(?:度)?|高さ|height)\s*([0-9]{2,4})\s*(?:px|像素)?/i);
+  if (h1){
+    SETTINGS.band.height = Math.max(0, Math.min(400, parseInt(h1[2],10)));
+    changed = true; info.height = SETTINGS.band.height;
+  }
+  // 加厚/变薄（步进 30px）
+  if (/(色带|色塊|色块|顶部色块|顶端色带|上部色帯|ヘッダー帯|ヘッダー).*(加厚|更厚|厚一点|厚一些)/i.test(text)){
+    SETTINGS.band.height = Math.min(400, (SETTINGS.band.height||0) + 30);
+    changed = true; info.height = SETTINGS.band.height;
+  }
+  if (/(色带|色塊|色块|顶部色块|顶端色带|上部色帯|ヘッダー帯|ヘッダー).*(更薄|变薄|減薄|薄一点|薄一些)/i.test(text)){
+    SETTINGS.band.height = Math.max(0, (SETTINGS.band.height||0) - 30);
+    changed = true; info.height = SETTINGS.band.height;
+  }
+  // 固定颜色
+  const c1 = text.match(/(色带|色塊|色块|顶部色块|顶端色带|上部色帯|ヘッダー帯|ヘッダー).*(?:颜色|色|用|设为|換成|color)\s*([#A-Za-z0-9一-龥]+)/i);
+  if (c1){
+    const col = resolveColor(c1[2]);
+    if (col){ SETTINGS.band.colorOverride = col; SETTINGS.band.followCategory = false; changed = true; info.color = col; }
+  }
+  // 跟随类别颜色
+  if (/(跟随|隨|按|回到|恢复|還原)(类别|分類|カテゴリ|类别颜色|分类颜色).*(颜色|色)?/i.test(text)){
+    SETTINGS.band.followCategory = true; SETTINGS.band.colorOverride = null; changed = true; info.follow = true;
+  }
+  return changed ? info : null;
+}
+
+/* =========================
+ * プリセット（保持不变）
  * ========================= */
 const PRESETS = [
   { // 体温/健康
@@ -189,7 +250,7 @@ function mergeWithPreset(a,b){
 }
 
 /* =========================
- * 文本工具
+ * 文本工具 & 精确测量
  * ========================= */
 function withFontSize(fontSpec, px){ return fontSpec.replace(/(?<=\s)(\d+(?:\.\d+)?)px(?=\s*['"]?)/, `${px}px`); }
 function getPx(fontSpec){ const m = fontSpec.match(/(\d+(?:\.\d+)?)px/); return m ? parseFloat(m[1]) : 32; }
@@ -216,8 +277,6 @@ function wrapLines(text, font, maxWidth){
   if (line) lines.push(line);
   return lines;
 }
-
-/* ---- 关键改进：逐行精确测量包围盒 ---- */
 function measureLine(text, font){
   ctx.font = font;
   const m = ctx.measureText(text);
@@ -245,8 +304,6 @@ function roundRectPath(x,y,w,h,r=12){
 }
 function drawStripeRingAroundRect(ctx, w, h, color, innerRect, radius){
   const stripeW = SETTINGS.ui.stripeWidth, gap = SETTINGS.ui.stripeGap, frame = SETTINGS.stripe.frame;
-
-  // 环形裁剪：外框 - 内面板（留出 ringGap）
   const inset = SETTINGS.stripe.ringGap;
   const inner = roundRectPath(innerRect.x - inset, innerRect.y - inset, innerRect.w + inset*2, innerRect.h + inset*2, Math.max(0, radius - 4));
 
@@ -266,14 +323,13 @@ function drawStripeRingAroundRect(ctx, w, h, color, innerRect, radius){
   }
   ctx.restore();
 
-  // 外边框
   ctx.save(); ctx.lineWidth = frame; ctx.strokeStyle = color;
   ctx.stroke(roundRectPath(10,10,w-20,h-20,16));
   ctx.restore();
 }
 
 /* =========================
- * レイアウト（返回精确包围盒参数）
+ * 排版（返回精确包围盒）
  * ========================= */
 function layoutBlocks(spec){
   const W = SETTINGS.canvas.width, H = SETTINGS.canvas.height;
@@ -311,7 +367,7 @@ function layoutBlocks(spec){
   if (zh.subtitle) addBlock(wrapLines(zh.subtitle, scaleFont(SETTINGS.fonts.zhBody), maxWidth), scaleFont(SETTINGS.fonts.zhBody), "#222", SETTINGS.lineHeights.zhBody);
   if (zh.note)     addBlock(wrapLines(zh.note,     scaleFont(SETTINGS.fonts.zhBody), maxWidth), scaleFont(SETTINGS.fonts.zhBody), "#222", SETTINGS.lineHeights.zhBody);
 
-  // 逐行测量，精确获取最宽与上下外延
+  // 精确测量
   let totalH = 0, maxLeft = 0, maxRight = 0, firstAscent = 0, lastDescent = 0;
   blocks.forEach((b, bi) => {
     ctx.font = b.font;
@@ -323,10 +379,10 @@ function layoutBlocks(spec){
       if (bi === blocks.length-1 && li === b.lines.length-1) lastDescent = m.descent;
     });
     totalH += b.lines.length * b.lineHeight;
-    if (bi !== blocks.length - 1) totalH += paraGap; // 只在段落之间加间距（修正）
+    if (bi !== blocks.length - 1) totalH += paraGap;
   });
 
-  const textWidth = maxLeft + maxRight; // 实际左右外延
+  const textWidth = maxLeft + maxRight;
   return { blocks, totalH, textWidth, maxWidth, scale, paraGap, firstAscent, lastDescent };
 }
 
@@ -343,18 +399,23 @@ function drawPoster(spec){
   // 背景
   ctx.fillStyle = "#fff"; ctx.fillRect(0,0,W,H);
 
-  // 排版参数
   const L = layoutBlocks(spec);
-  const bandColor = SAFETY[spec.category]?.base || "#999";
+
+  // 计算色带颜色与高度（支持自然语言覆盖）
+  const bandH = SETTINGS.band.height || 0;
+  const bandColor = SETTINGS.band.followCategory
+    ? (SAFETY[spec.category]?.base || "#999")
+    : (SETTINGS.band.colorOverride || SAFEY?.[spec.category]?.base || "#999"); // fallback
 
   // 顶部色带
-  ctx.fillStyle = bandColor;
-  ctx.fillRect(0,0,W,SETTINGS.bandHeight);
+  if (bandH > 0){
+    ctx.fillStyle = bandColor;
+    ctx.fillRect(0,0,W,bandH);
+  }
 
-  // 计算内容面板的精确矩形（考虑 ascent / descent / 斜体外延）
+  // 内容面板矩形（基于精确基线）
   const centerX = W/2;
-  // 第一行基线位置
-  const firstBaselineY = (H + SETTINGS.bandHeight)/2 - L.totalH/2;
+  const firstBaselineY = (H + bandH)/2 - L.totalH/2; // 在 bandH ~ H 范围垂直居中
   const contentTop    = firstBaselineY - L.firstAscent;
   const contentBottom = firstBaselineY + L.totalH + L.lastDescent;
   const contentHeight = contentBottom - contentTop;
@@ -363,37 +424,30 @@ function drawPoster(spec){
   const padY = SETTINGS.panel.paddingY;
 
   let panelW = Math.min(L.textWidth + padX*2, W - SETTINGS.panel.marginX*2);
-  let panelH = Math.min(contentHeight + padY*2, H - (SETTINGS.bandHeight + SETTINGS.panel.marginY) - SETTINGS.panel.marginY);
+  let panelH = Math.min(contentHeight + padY*2, H - (bandH + SETTINGS.panel.marginY) - SETTINGS.panel.marginY);
 
   let panelX = Math.max(SETTINGS.panel.marginX, centerX - panelW/2);
-  let panelY = Math.max(SETTINGS.bandHeight + SETTINGS.panel.marginY, contentTop - padY);
-
-  // 若底部会溢出，则整体上移
-  if (panelY + panelH > H - SETTINGS.panel.marginY) {
-    panelY = H - SETTINGS.panel.marginY - panelH;
-  }
+  let panelY = Math.max(bandH + SETTINGS.panel.marginY, contentTop - padY);
+  if (panelY + panelH > H - SETTINGS.panel.marginY) panelY = H - SETTINGS.panel.marginY - panelH;
 
   const panelPath = roundRectPath(panelX, panelY, panelW, panelH, SETTINGS.panel.radius);
 
   // 斜纹围绕（用面板矩形做内环）
   if (spec.border === "stripes") {
-    drawStripeRingAroundRect(ctx, W, H, bandColor, {x:panelX, y:panelY, w:panelW, h:panelH}, SETTINGS.panel.radius);
+    drawStripeRingAroundRect(ctx, W, H, SETTINGS.band.followCategory ? (SAFETY[spec.category]?.base || "#999") : (SETTINGS.band.colorOverride || "#999"), {x:panelX, y:panelY, w:panelW, h:panelH}, SETTINGS.panel.radius);
   } else if (spec.border === "solid") {
-    ctx.strokeStyle = bandColor; ctx.lineWidth = SETTINGS.solidBorderWidth;
+    const borderColor = SETTINGS.band.followCategory ? (SAFETY[spec.category]?.base || "#999") : (SETTINGS.band.colorOverride || "#999");
+    ctx.strokeStyle = borderColor; ctx.lineWidth = SETTINGS.solidBorderWidth;
     ctx.stroke(roundRectPath(10,10,W-20,H-20,16));
   }
 
-  // 白色面板（有阴影）
+  // 白色内容面板
   ctx.save();
-  if (SETTINGS.panel.shadow){
-    ctx.shadowColor = "rgba(0,0,0,.06)";
-    ctx.shadowBlur = 12;
-  }
-  ctx.fillStyle = "#fff";
-  ctx.fill(panelPath);
+  if (SETTINGS.panel.shadow){ ctx.shadowColor = "rgba(0,0,0,.06)"; ctx.shadowBlur = 12; }
+  ctx.fillStyle = "#fff"; ctx.fill(panelPath);
   ctx.restore();
 
-  // 文本（按真实基线绘制；段落间距只在段落间）
+  // 文本
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
   let y = firstBaselineY;
@@ -401,14 +455,14 @@ function drawPoster(spec){
   L.blocks.forEach((b, bi) => {
     ctx.font = b.font; ctx.fillStyle = b.color;
     b.lines.forEach(ln => { ctx.fillText(ln, cx, y); y += b.lineHeight; });
-    if (bi !== L.blocks.length - 1) y += L.paraGap; // 只在段落间加
+    if (bi !== L.blocks.length - 1) y += L.paraGap;
   });
 }
 
 /* =========================
  * 自然な日本語返信
  * ========================= */
-function formatBotReply(spec, sizeInfo){
+function formatBotReply(spec, sizeInfo, bandInfo){
   const catMap = { warning:"黄色の警告", prohibition:"赤の禁止", mandatory:"青の指示", safe:"緑の安全", fire:"防火", neutral:"中立" };
   const jp=spec.jp||{}, en=spec.en||{}, zh=spec.zh||{};
   const bits=[];
@@ -416,7 +470,14 @@ function formatBotReply(spec, sizeInfo){
   if(en.title || en.subtitle) bits.push(`英文：${[en.title,en.subtitle].filter(Boolean).join(" / ")}`);
   if(zh.title || zh.subtitle || zh.note) bits.push(`中国語：${[zh.title,zh.subtitle,zh.note].filter(Boolean).join(" / ")}`);
   const sizeTxt = sizeInfo ? `${sizeInfo.name}・${sizeInfo.orient}（${sizeInfo.w}×${sizeInfo.h}px）` : `${SETTINGS.canvas.width}×${SETTINGS.canvas.height}px`;
-  return `了解しました。内容に合わせてレイアウトを最適化しました。\n- ${bits.join("\n- ")}\n- スタイル：${catMap[spec.category]||spec.category}、枠は「${spec.border==="stripes"?"斜線":"実線"}」\n- 用紙サイズ：${sizeTxt}\n右上のギアでフォント倍率・行間・斜線の太さ/間隔を調整できます。`;
+
+  // 色带描述
+  let bandTxt = "";
+  if (SETTINGS.band.height === 0) bandTxt = "上部の色帯：なし";
+  else if (SETTINGS.band.followCategory) bandTxt = `上部の色帯：カテゴリ連動，高さ ${SETTINGS.band.height}px`;
+  else bandTxt = `上部の色帯：固定色 ${SETTINGS.band.colorOverride}，高さ ${SETTINGS.band.height}px`;
+
+  return `了解しました。内容に合わせてレイアウトを最適化しました。\n- ${bits.join("\n- ")}\n- スタイル：${catMap[spec.category]||spec.category}、枠は「${spec.border==="stripes"?"斜線":"実線"}」\n- 用紙サイズ：${sizeTxt}\n- ${bandTxt}\n右上のギアでフォント倍率・行間・斜線の太さ/間隔を調整できます。`;
 }
 
 /* =========================
@@ -436,6 +497,9 @@ async function generatePoster(userText){
 
   // 尺寸先应用
   const sizeInfo = applyCanvasSizeBySpec(data?.size, userText);
+
+  // 顶部色带：自然语言解析（新增）
+  const bandInfo = applyBandNaturalLanguage(userText);
 
   // 预设与补正
   const preset = matchPreset(userText); if (preset) data = mergeWithPreset(data, preset);
@@ -469,12 +533,12 @@ async function generatePoster(userText){
     size: data.size || "A3横", icon: data.icon || ""
   };
 
-  addMsg("bot", formatBotReply(spec, sizeInfo));
+  addMsg("bot", formatBotReply(spec, sizeInfo, bandInfo));
   drawPoster(spec);
 }
 
 /* =========================
- * 控制面板（可折叠）
+ * 控制面板（保持）
  * ========================= */
 function createControlPanel(){
   const btn = document.createElement("button");
@@ -514,12 +578,6 @@ function createControlPanel(){
 
     <label>斜線の間隔：<span id="v-sg">${SETTINGS.ui.stripeGap}</span></label>
     <input id="ui-stripeG" type="range" min="10" max="60" step="2" value="${SETTINGS.ui.stripeGap}" style="width:100%;margin:6px 0 4px;">
-
-    <label>面板左右余白(px)：<span id="v-padx">${SETTINGS.panel.paddingX}</span></label>
-    <input id="ui-padx" type="range" min="12" max="100" step="2" value="${SETTINGS.panel.paddingX}" style="width:100%;margin:6px 0 10px;">
-
-    <label>面板上下余白(px)：<span id="v-pady">${SETTINGS.panel.paddingY}</span></label>
-    <input id="ui-pady" type="range" min="8" max="100" step="2" value="${SETTINGS.panel.paddingY}" style="width:100%;margin:6px 0 10px;">
   `;
   document.body.appendChild(panel);
 
@@ -533,8 +591,6 @@ function createControlPanel(){
   $("#ui-para").oninput    = e => { SETTINGS.ui.paragraphSpacing = parseInt(e.target.value,10); $("#v-para").textContent = SETTINGS.ui.paragraphSpacing;    update(); };
   $("#ui-stripeW").oninput = e => { SETTINGS.ui.stripeWidth      = parseInt(e.target.value,10); $("#v-sw").textContent   = SETTINGS.ui.stripeWidth;         update(); };
   $("#ui-stripeG").oninput = e => { SETTINGS.ui.stripeGap        = parseInt(e.target.value,10); $("#v-sg").textContent   = SETTINGS.ui.stripeGap;           update(); };
-  $("#ui-padx").oninput    = e => { SETTINGS.panel.paddingX      = parseInt(e.target.value,10); $("#v-padx").textContent = SETTINGS.panel.paddingX;         update(); };
-  $("#ui-pady").oninput    = e => { SETTINGS.panel.paddingY      = parseInt(e.target.value,10); $("#v-pady").textContent = SETTINGS.panel.paddingY;         update(); };
 }
 function redrawLast(){ if(lastSpec) drawPoster(lastSpec); }
 createControlPanel();
