@@ -1,6 +1,7 @@
 /* =========================================================
- * Poster Generator — 安定版 app.js（最稳妥修复＋历史记录增强）
+ * Poster Generator — 安定版 app.js（最稳妥修复＋历史记录增强＋样式指令强制编辑）
  * - 颜色指令稳妥生效（背景=面板+外侧；斜線=自动切到斜線枠并上色）
+ * - “背景色を黄色にしたい”等样式类指令 → 永远只编辑当前海报，不新建、不变“通行注意”
  * - 仅对当前海报生效；导出/完成/新建后自动恢复初始
  * - 历史记录：本地保存、搜索/筛选、导出、置顶、会话分隔、自动避开标题
  * - UI：齿轮图标放大且不遮标题；文本居中自适应；回车发送/Shift+回车换行（IME友好）
@@ -532,6 +533,15 @@ const NEW_VERB_OBJECT_PATTERN = /(?:(?:作る|作成|生成).*(?:海报|ポス�
 const NO_POS_POSTER_RE = /(.+?)のポスター(?!.*(直す|修正|編集|変更|調整|手直し))/i;
 const EDIT_TARGETS_RE = /(背景|背景色|canvas|外側|パネル|面の背景|白地|隙間|スキマ|斜線|ストライプ|枠|枠線|ボーダー|実線|颜色|色|カラー|色帯|ヘッダー帯|サイズ|用紙|A[0-5]|px|フォント|倍率|スケール|行間|余白|パディング|間隔|太さ|厚さ|細さ)/i;
 
+/* ⭐ 新增：样式类指令识别（强制编辑用） */
+const STYLE_KW_RE = /(背景|背景色|canvas|外側|パネル|面の背景|白地|隙間|スキマ|斜線|ストライプ|枠|枠線|ボーダー|実線|颜色|色|カラー|size|サイズ|用紙|A[0-5]|px|フォント|倍率|スケール|行間|余白|パディング|間隔|太さ|厚さ|細さ|色帯|ヘッダー帯)/i;
+const NEW_KW_RE   = /(作る|作成|生成|ください|下さい|欲しい|ほしい|お願いします?|ポスター|poster)/i;
+const TOPIC_RE    = /(非常口|emergency\s*exit|避難口|仮置き|临时放置|temporary\s*placement|衝突事故|衝突|冲突|collision|体温|検温|測温|测温|temperature\s*check|health\s*check|安全第一|safety\s*first|通行注意|走行車両|forklift)/i;
+function isStyleOnlyCommand(text){
+  const t = norm(text);
+  return STYLE_KW_RE.test(t) && !NEW_KW_RE.test(t) && !TOPIC_RE.test(t);
+}
+
 function textHasNewCue(text){
   if (!text) return false;
   return NEW_VERB_OBJECT_PATTERN.test(text) || NO_POS_POSTER_RE.test(text) ||
@@ -623,7 +633,7 @@ function formatEditReply(changes){
   return "次の内容でポスターを更新しました：\n- " + changes.join("\n- ");
 }
 
-/* ---------- 生成主流程 ---------- */
+/* ---------- 生成主流程（含样式指令强制编辑补丁） ---------- */
 function parseJSONLoose(t){ if(!t) return null; const m=t.match(/```(?:json)?\s*([\s\S]*?)```/i); const body=m?m[1]:t; try{return JSON.parse(body);}catch{return null;} }
 function mergeWithPreset(a,b){
   if(!b) return a;
@@ -640,7 +650,17 @@ function mergeWithPreset(a,b){
 
 async function generatePoster(userText){
   const text = norm(userText);
-  const intent = classifyIntent(text, lastSpec);
+  let intent = classifyIntent(text, lastSpec);
+
+  /* ⭐ 强制：纯样式指令 → 一律“编辑”，且没有现成海报时不新建兜底 */
+  if (isStyleOnlyCommand(text)) {
+    if (lastSpec) {
+      intent = { type: "edit" };
+    } else {
+      addMsg("bot", "背景色などの見た目調整ですね。先に1枚作成しましょう。例：「非常口」「仮置き禁止」などを入力してください。");
+      return;
+    }
+  }
 
   if (intent.type === "finalize"){
     resetRuntimeSettings();
@@ -662,6 +682,16 @@ async function generatePoster(userText){
       addMsg("bot","ポスターを作成し、枠線（実線）を適用しました。");
       return;
     }
+  }
+
+  // 编辑：在当前图上修改
+  if (intent.type === "edit" && lastSpec){
+    const spec=sc(lastSpec), changes=[];
+    const textChanged = applyTextEdits(text, spec, changes);
+    const styleChanged= applyStyleEdits(text, spec, changes);
+    if (textChanged || styleChanged){ drawPoster(spec); addMsg("bot", formatEditReply(changes)); }
+    else { addMsg("bot", formatEditReply([])); }
+    return;
   }
 
   // 新建：如果已有上一张，则视为开始新会话
