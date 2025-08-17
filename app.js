@@ -22,10 +22,8 @@ const messagesEl = document.getElementById("messages"),
       dlBtn      = document.getElementById("download");
 
 function addMsg(role, text){
-  // 只显示机器人消息
-  if (role === "user") return;
   const div = document.createElement("div");
-  div.className = "msg bot";
+  div.className = "msg " + (role === "user" ? "user" : "bot");
   div.textContent = text;
   messagesEl.appendChild(div);
   messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -36,8 +34,7 @@ function addMsg(role, text){
  * ========================= */
 const SETTINGS = {
   canvas: { width: 1404, height: 993 },   // 既定 A3 横
-  // —— 顶部色带（新增自然语言控制的目标）——
-  band: { height: 160, followCategory: true, colorOverride: null }, // height=0 表示关闭
+  band: { height: 160, followCategory: true, colorOverride: null }, // 顶部色带
   marginX: 60,
   stripe: { width: 22, gap: 28, frame: 16, ringGap: 10 },
   solidBorderWidth: 14,
@@ -99,7 +96,7 @@ const SYSTEM_PROMPT = `
 `;
 
 /* =========================
- * 纸张尺寸解析（自然语言）
+ * 尺寸解析（自然语言）
  * ========================= */
 const SQRT2 = Math.SQRT2;
 const PAPER_BASE = { name:"A3", orient:"横", w:1404, h:993 };
@@ -108,88 +105,79 @@ function paperFromText(text){
   if (m){
     const n = parseInt(m[1],10);
     const orient = (m[2]||"横").replace(/landscape/i,"横").replace(/portrait/i,"縦");
-    const delta = 3 - n; // 相对 A3 的差
+    const delta = 3 - n;
     const factor = Math.pow(SQRT2, delta);
     const baseW = PAPER_BASE.w * factor, baseH = PAPER_BASE.h * factor;
     const w = Math.round(orient==="横" ? baseW : baseH);
     const h = Math.round(orient==="横" ? baseH : baseW);
     return { name:`A${n}`, orient, w, h };
   }
-  const p = text && text.match(/(\d{3,5})\s*[x×]\s*(\d{3,5})\s*(?:px)?/i);
+  const p = text && text.match(/(\d{3,5})\s*[x×]\s*(\d{3,5})\s*(?:px|ピクセル)?/i);
   if (p) return { name:"Custom", orient:"横", w:parseInt(p[1],10), h:parseInt(p[2],10) };
   return null;
 }
 function applyCanvasSizeBySpec(sizeStr, userText){
   const p = paperFromText(userText) || paperFromText(sizeStr);
   if (p){ SETTINGS.canvas.width = p.w; SETTINGS.canvas.height = p.h; return p; }
-  return { name:PAPER_BASE.name, orient:PAPER_BASE.orient, w:SETTINGS.canvas.width, h:SETTINGS.canvas.height };
+  return null;
 }
 
 /* =========================
- * 顶部色带：自然语言控制（新增）
+ * 顶部色带：自然语言控制（中/日/英）
  * ========================= */
 const COLOR_MAP = {
-  "red":"#C62828","红":"#C62828","紅":"#C62828","赤":"#C62828",
-  "yellow":"#F9A900","黄":"#F9A900","黃":"#F9A900","黄色":"#F9A900",
-  "blue":"#005387","蓝":"#005387","藍":"#005387","青":"#005387","蓝色":"#005387","藍色":"#005387",
-  "green":"#237F52","绿":"#237F52","綠":"#237F52","绿色":"#237F52","緑":"#237F52",
-  "black":"#000000","黑":"#000000","黒":"#000000",
-  "white":"#ffffff","白":"#ffffff",
-  "公司蓝":"#0a84ff","企业蓝":"#0a84ff","品牌蓝":"#0a84ff"
+  "red":"#C62828","黄":"#F9A900","yellow":"#F9A900","blue":"#005387","green":"#237F52",
+  "black":"#000000","white":"#ffffff","公司蓝":"#0a84ff","企业蓝":"#0a84ff","品牌蓝":"#0a84ff",
+  "赤":"#C62828","レッド":"#C62828","イエロー":"#F9A900",
+  "青":"#005387","ブルー":"#005387",
+  "緑":"#237F52","グリーン":"#237F52",
+  "黒":"#000000","ブラック":"#000000",
+  "白":"#ffffff","ホワイト":"#ffffff",
+  "会社ブルー":"#0a84ff","企業ブルー":"#0a84ff","コーポレートカラー":"#0a84ff","ブランドブルー":"#0a84ff"
 };
 function resolveColor(word){
   if (!word) return null;
   const hex = word.match(/#([0-9a-f]{3,8})/i);
   if (hex) return "#" + hex[1];
-  const key = word.replace(/颜色?|色$/i,"").toLowerCase();
-  return COLOR_MAP[key] || null;
+  const norm = word.replace(/(颜色?|色|カラー)$/i, "").toLowerCase();
+  return COLOR_MAP[norm] || COLOR_MAP[word] || null;
 }
 function applyBandNaturalLanguage(text){
   if (!text) return null;
   let changed = false, info = {};
+  const bandKW = "(?:色带|色塊|色块|顶部色块|顶端色带|上部色帯|ヘッダー帯|ヘッダー|ヘッダ|ヘッダー バンド|上部の帯|バンド)";
 
-  // 关闭色带
-  if (/(去掉|取消|不要|关闭|關閉|关闭掉|去除|隱藏)(顶端|顶部)?(色带|色塊|色块|顶部色块|顶端色带|上部色帯|ヘッダー帯|ヘッダー)/i.test(text)){
+  if (new RegExp("(去掉|取消|不要|关闭|關閉|去除|隠す|非表示|無し|外す|オフ).*" + bandKW, "i").test(text)){
     SETTINGS.band.height = 0; changed = true; info.off = true;
   }
-  // 开启/显示
-  if (/(开启|打开|显示|顯示)(顶端|顶部)?(色带|色塊|色块|顶部色块|顶端色带|上部色帯|ヘッダー帯|ヘッダー)/i.test(text)){
+  if (new RegExp("(开启|打开|显示|顯示|表示|オン|出す|付ける).*" + bandKW, "i").test(text)){
     if (SETTINGS.band.height === 0) SETTINGS.band.height = 160;
     changed = true; info.off = false;
   }
-  // 高度为具体数值
-  const h1 = text.match(/(色带|色塊|色块|顶部色块|顶端色带|上部色帯|ヘッダー帯|ヘッダー).*(?:高(?:度)?|厚(?:度)?|高さ|height)\s*([0-9]{2,4})\s*(?:px|像素)?/i);
-  if (h1){
-    SETTINGS.band.height = Math.max(0, Math.min(400, parseInt(h1[2],10)));
-    changed = true; info.height = SETTINGS.band.height;
+  const h1 = text.match(new RegExp(bandKW + ".*?(?:高度|厚度|高さ|height)\\s*([0-9]{2,4})\\s*(?:px|ピクセル|像素)?", "i"));
+  if (h1){ SETTINGS.band.height = Math.max(0, Math.min(400, parseInt(h1[1],10))); changed = true; info.height = SETTINGS.band.height; }
+  if (new RegExp(bandKW + ".*?(加厚|更厚|厚一点|厚一些|厚く|太く|もっと厚く)", "i").test(text)){
+    SETTINGS.band.height = Math.min(400, (SETTINGS.band.height||0) + 30); changed = true; info.height = SETTINGS.band.height;
   }
-  // 加厚/变薄（步进 30px）
-  if (/(色带|色塊|色块|顶部色块|顶端色带|上部色帯|ヘッダー帯|ヘッダー).*(加厚|更厚|厚一点|厚一些)/i.test(text)){
-    SETTINGS.band.height = Math.min(400, (SETTINGS.band.height||0) + 30);
-    changed = true; info.height = SETTINGS.band.height;
+  if (new RegExp(bandKW + ".*?(更薄|变薄|薄く|細く|薄め|少し薄く)", "i").test(text)){
+    SETTINGS.band.height = Math.max(0, (SETTINGS.band.height||0) - 30); changed = true; info.height = SETTINGS.band.height;
   }
-  if (/(色带|色塊|色块|顶部色块|顶端色带|上部色帯|ヘッダー帯|ヘッダー).*(更薄|变薄|減薄|薄一点|薄一些)/i.test(text)){
-    SETTINGS.band.height = Math.max(0, (SETTINGS.band.height||0) - 30);
-    changed = true; info.height = SETTINGS.band.height;
-  }
-  // 固定颜色
-  const c1 = text.match(/(色带|色塊|色块|顶部色块|顶端色带|上部色帯|ヘッダー帯|ヘッダー).*(?:颜色|色|用|设为|換成|color)\s*([#A-Za-z0-9一-龥]+)/i);
+  const c1 = text.match(new RegExp(bandKW + ".*?(?:颜色|色|カラー|color)\\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)", "i"));
   if (c1){
-    const col = resolveColor(c1[2]);
+    const col = resolveColor(c1[1]);
     if (col){ SETTINGS.band.colorOverride = col; SETTINGS.band.followCategory = false; changed = true; info.color = col; }
   }
-  // 跟随类别颜色
-  if (/(跟随|隨|按|回到|恢复|還原)(类别|分類|カテゴリ|类别颜色|分类颜色).*(颜色|色)?/i.test(text)){
+  if (/(跟随|隨|按|回到|恢复|還原|元に戻す|デフォルト|既定|カテゴリ連動|カテゴリー連動)/i.test(text)){
     SETTINGS.band.followCategory = true; SETTINGS.band.colorOverride = null; changed = true; info.follow = true;
   }
   return changed ? info : null;
 }
 
 /* =========================
- * プリセット（保持不变）
+ * プリセット（生成时兜底）
  * ========================= */
 const PRESETS = [
-  { // 体温/健康
+  {
     match: /(体温|検温|測温|测温|temperature\s*check|health\s*check|注意身体|体調|体调|发烧|fever)/i,
     spec: {
       jp: { title: "体温測定", note: "体調に変化があれば すぐに報告してください" },
@@ -198,7 +186,7 @@ const PRESETS = [
       category: "mandatory", border: "stripes", size: "A3横", icon: "thermometer"
     }
   },
-  { // 非常口
+  {
     match: /(非常口|emergency\s*exit|避難口)/i,
     spec: {
       jp: { title: "非常口", subtitle: "前に物を置かない" },
@@ -207,7 +195,7 @@ const PRESETS = [
       category: "safe", border: "solid", size: "A3横", icon: "exit"
     }
   },
-  { // 衝突
+  {
     match: /(衝突事故|衝突|冲突|collision|接触事故|ぶつかり)/i,
     spec: {
       jp: { title: "衝突注意" },
@@ -216,7 +204,7 @@ const PRESETS = [
       category: "warning", border: "stripes", size: "A3横", icon: "collision"
     }
   },
-  { // 仮置き
+  {
     match: /(仮置き|临时放置|temporary\s*placement)/i,
     spec: {
       jp: { title: "仮置き禁止", subtitle: "通路・ラインを確保" },
@@ -225,7 +213,7 @@ const PRESETS = [
       category: "prohibition", border: "stripes", size: "A3横", icon: "no-box"
     }
   },
-  { // 安全第一
+  {
     match: /(安全(第一)?|safety( first)?)/i,
     spec: {
       jp: { title: "安全第一", subtitle: "指差呼称・周囲確認" },
@@ -367,7 +355,6 @@ function layoutBlocks(spec){
   if (zh.subtitle) addBlock(wrapLines(zh.subtitle, scaleFont(SETTINGS.fonts.zhBody), maxWidth), scaleFont(SETTINGS.fonts.zhBody), "#222", SETTINGS.lineHeights.zhBody);
   if (zh.note)     addBlock(wrapLines(zh.note,     scaleFont(SETTINGS.fonts.zhBody), maxWidth), scaleFont(SETTINGS.fonts.zhBody), "#222", SETTINGS.lineHeights.zhBody);
 
-  // 精确测量
   let totalH = 0, maxLeft = 0, maxRight = 0, firstAscent = 0, lastDescent = 0;
   blocks.forEach((b, bi) => {
     ctx.font = b.font;
@@ -396,32 +383,23 @@ function drawPoster(spec){
   const W = SETTINGS.canvas.width, H = SETTINGS.canvas.height;
   canvas.width = W; canvas.height = H;
 
-  // 背景
   ctx.fillStyle = "#fff"; ctx.fillRect(0,0,W,H);
 
   const L = layoutBlocks(spec);
-
-  // 计算色带颜色与高度（支持自然语言覆盖）
   const bandH = SETTINGS.band.height || 0;
   const bandColor = SETTINGS.band.followCategory
     ? (SAFETY[spec.category]?.base || "#999")
-    : (SETTINGS.band.colorOverride || SAFEY?.[spec.category]?.base || "#999"); // fallback
+    : (SETTINGS.band.colorOverride || "#999");
 
-  // 顶部色带
-  if (bandH > 0){
-    ctx.fillStyle = bandColor;
-    ctx.fillRect(0,0,W,bandH);
-  }
+  if (bandH > 0){ ctx.fillStyle = bandColor; ctx.fillRect(0,0,W,bandH); }
 
-  // 内容面板矩形（基于精确基线）
   const centerX = W/2;
-  const firstBaselineY = (H + bandH)/2 - L.totalH/2; // 在 bandH ~ H 范围垂直居中
+  const firstBaselineY = (H + bandH)/2 - L.totalH/2;
   const contentTop    = firstBaselineY - L.firstAscent;
   const contentBottom = firstBaselineY + L.totalH + L.lastDescent;
   const contentHeight = contentBottom - contentTop;
 
-  const padX = SETTINGS.panel.paddingX;
-  const padY = SETTINGS.panel.paddingY;
+  const padX = SETTINGS.panel.paddingX, padY = SETTINGS.panel.paddingY;
 
   let panelW = Math.min(L.textWidth + padX*2, W - SETTINGS.panel.marginX*2);
   let panelH = Math.min(contentHeight + padY*2, H - (bandH + SETTINGS.panel.marginY) - SETTINGS.panel.marginY);
@@ -432,26 +410,20 @@ function drawPoster(spec){
 
   const panelPath = roundRectPath(panelX, panelY, panelW, panelH, SETTINGS.panel.radius);
 
-  // 斜纹围绕（用面板矩形做内环）
   if (spec.border === "stripes") {
-    drawStripeRingAroundRect(ctx, W, H, SETTINGS.band.followCategory ? (SAFETY[spec.category]?.base || "#999") : (SETTINGS.band.colorOverride || "#999"), {x:panelX, y:panelY, w:panelW, h:panelH}, SETTINGS.panel.radius);
+    drawStripeRingAroundRect(ctx, W, H, bandColor, {x:panelX, y:panelY, w:panelW, h:panelH}, SETTINGS.panel.radius);
   } else if (spec.border === "solid") {
-    const borderColor = SETTINGS.band.followCategory ? (SAFETY[spec.category]?.base || "#999") : (SETTINGS.band.colorOverride || "#999");
-    ctx.strokeStyle = borderColor; ctx.lineWidth = SETTINGS.solidBorderWidth;
+    ctx.strokeStyle = bandColor; ctx.lineWidth = SETTINGS.solidBorderWidth;
     ctx.stroke(roundRectPath(10,10,W-20,H-20,16));
   }
 
-  // 白色内容面板
   ctx.save();
   if (SETTINGS.panel.shadow){ ctx.shadowColor = "rgba(0,0,0,.06)"; ctx.shadowBlur = 12; }
   ctx.fillStyle = "#fff"; ctx.fill(panelPath);
   ctx.restore();
 
-  // 文本
-  ctx.textAlign = "center";
-  ctx.textBaseline = "alphabetic";
-  let y = firstBaselineY;
-  const cx = centerX;
+  ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+  let y = firstBaselineY, cx = centerX;
   L.blocks.forEach((b, bi) => {
     ctx.font = b.font; ctx.fillStyle = b.color;
     b.lines.forEach(ln => { ctx.fillText(ln, cx, y); y += b.lineHeight; });
@@ -460,7 +432,160 @@ function drawPoster(spec){
 }
 
 /* =========================
- * 自然な日本語返信
+ * 编辑：自然语言对当前海报做修改
+ * ========================= */
+function deepClone(o){ return JSON.parse(JSON.stringify(o)); }
+function pickLangKey(t){
+  if (/(日文|日語|日本語|JP)/i.test(t)) return "jp";
+  if (/(英文|英語|EN)/i.test(t)) return "en";
+  if (/(中文|中国語|ZH)/i.test(t)) return "zh";
+  return "jp"; // 默认改日文
+}
+function ensureLang(obj,k){ obj[k] = obj[k] || {}; return obj[k]; }
+function quoted(text){
+  const m = text.match(/[「『“"']([^「『“"']+)[」』”"']/);
+  return m ? m[1].trim() : null;
+}
+function applyTextEdits(text, spec, changes){
+  let changed = false;
+
+  // 删除整种语言或字段
+  if (/(去掉|删除|不要|消す|削除)(英文|英語|EN)/i.test(text)){ spec.en = {}; changes.push("英語を削除"); changed = true; }
+  if (/(去掉|删除|不要|消す|削除)(中文|中国語|ZH)/i.test(text)){ spec.zh = {}; changes.push("中国語を削除"); changed = true; }
+  if (/(去掉|删除|不要|消す|削除)(日文|日本語|JP)/i.test(text)){ spec.jp = {}; changes.push("日本語を削除"); changed = true; }
+
+  // 具体字段：标题/副标题/备注
+  const fieldRegs = [
+    { key:"title",    cn:/(标题|標題|見出し|タイトル)/, jp:/(見出し|タイトル)/ },
+    { key:"subtitle", cn:/(副标题|副題|サブタイトル)/,   jp:/(サブタイトル|副題)/ },
+    { key:"note",     cn:/(备注|注记|注釈|ノート|注記)/,   jp:/(注記|注釈|ノート)/ }
+  ];
+
+  for (const field of fieldRegs){
+    // 设置为某内容（带引号）
+    let rgSetCN = new RegExp("(?:把)?(?:(日文|日語|日本語|JP|英文|英語|EN|中文|中国語|ZH))?.*?"+field.cn.source+".*?(改成|改为|换成|设置为|设为)", "i");
+    let rgSetJP = new RegExp("(?:(日本語|英語|中国語|JP|EN|ZH))?.*?"+field.jp.source+".*?(?:を)?\\s*[「『“\"\']([^「『“\"']+)[」』”\"\']\\s*に(?:する|変更|変える|して)", "i");
+
+    const q = quoted(text);
+    if (rgSetJP.test(text) && q){
+      const lang = pickLangKey(text.match(rgSetJP)[1] || "");
+      ensureLang(spec,lang)[field.key] = q;
+      changes.push(`${lang.toUpperCase()}の${field.key}を「${q}」に`);
+      changed = true; continue;
+    }
+    if (rgSetCN.test(text) && q){
+      const lang = pickLangKey(text.match(rgSetCN)[1] || "");
+      ensureLang(spec,lang)[field.key] = q;
+      changes.push(`${lang.toUpperCase()} ${field.key} を更新`);
+      changed = true; continue;
+    }
+
+    // “把…改成 …” （无引号时，尽量抓取“改成/改为/にする”后的尾部）
+    const tailCN = new RegExp(field.cn.source + ".*?(?:改成|改为|换成|设置为|设为)\\s*([^。！!\\n]+)", "i");
+    const m1 = text.match(tailCN);
+    if (m1){
+      const lang = pickLangKey(text);
+      const val = m1[1].trim();
+      ensureLang(spec,lang)[field.key] = val;
+      changes.push(`${lang.toUpperCase()} ${field.key} を更新`);
+      changed = true;
+    }
+
+    const tailJP = new RegExp(field.jp.source + ".*?(?:を)?\\s*([^\\s「『]+)\\s*に(?:する|変更|変える|して)", "i");
+    const m2 = text.match(tailJP);
+    if (m2 && !q){
+      const lang = pickLangKey(text);
+      const val = m2[1].trim();
+      ensureLang(spec,lang)[field.key] = val;
+      changes.push(`${lang.toUpperCase()} ${field.key} を更新`);
+      changed = true;
+    }
+  }
+
+  // 追加一行（落到 note）
+  if (/(追加|加上一句|加一行|追記)/i.test(text)){
+    const lang = pickLangKey(text);
+    const qv = quoted(text);
+    if (qv){
+      const L = ensureLang(spec, lang);
+      L.note = L.note ? (L.note + " / " + qv) : qv;
+      changes.push(`${lang.toUpperCase()} に一文を追記`);
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
+function applyStyleEdits(text, spec, changes){
+  let changed = false;
+
+  // 边框
+  if (/(无边框|不要边框|枠なし|縁なし)/i.test(text)){ spec.border = "none"; changes.push("枠：なし"); changed = true; }
+  if (/(边框|框|枠).*(斜纹|斜線|ストライプ)/i.test(text)){ spec.border = "stripes"; changes.push("枠：斜線"); changed = true; }
+  if (/(边框|框|枠).*(实线|實線|実線|ソリッド)/i.test(text)){ spec.border = "solid"; changes.push("枠：実線"); changed = true; }
+
+  // 类别
+  if (/(警告|注意|warning)/i.test(text)){ spec.category = "warning"; changes.push("カテゴリ：警告"); changed = true; }
+  if (/(禁止|不可|prohibition)/i.test(text)){ spec.category = "prohibition"; changes.push("カテゴリ：禁止"); changed = true; }
+  if (/(指示|必须|必須|mandatory)/i.test(text)){ spec.category = "mandatory"; changes.push("カテゴリ：指示"); changed = true; }
+  if (/(安全|避難|safe)/i.test(text)){ spec.category = "safe"; changes.push("カテゴリ：安全"); changed = true; }
+  if (/(防火|fire)/i.test(text)){ spec.category = "fire"; changes.push("カテゴリ：防火"); changed = true; }
+
+  // 斜纹粗细/间隔（影响 SETTINGS）
+  if (/(斜纹|斜線|ストライプ).*(粗|太|厚|太く)/i.test(text)){ SETTINGS.ui.stripeWidth = Math.min(50, SETTINGS.ui.stripeWidth + 4); changes.push(`斜線の太さ：${SETTINGS.ui.stripeWidth}`); }
+  if (/(斜纹|斜線|ストライプ).*(细|薄|細|薄く)/i.test(text)){ SETTINGS.ui.stripeWidth = Math.max(10, SETTINGS.ui.stripeWidth - 4); changes.push(`斜線の太さ：${SETTINGS.ui.stripeWidth}`); }
+  const gapN = text.match(/(间隔|間隔)\s*([0-9]{1,3})\s*(px|ピクセル)?/i);
+  if (gapN){ SETTINGS.ui.stripeGap = Math.max(10, Math.min(60, parseInt(gapN[2],10))); changes.push(`斜線の間隔：${SETTINGS.ui.stripeGap}`); }
+
+  // 字号/倍率
+  if (/(字号|文字|フォント).*(大|大きく|増や|放大)/i.test(text)){ SETTINGS.ui.fontScale = Math.min(1.5, SETTINGS.ui.fontScale + 0.1); changes.push(`フォント倍率：${SETTINGS.ui.fontScale.toFixed(2)}`); }
+  if (/(字号|文字|フォント).*(小|小さく|減ら|缩小)/i.test(text)){ SETTINGS.ui.fontScale = Math.max(0.6, SETTINGS.ui.fontScale - 0.1); changes.push(`フォント倍率：${SETTINGS.ui.fontScale.toFixed(2)}`); }
+  const mag = text.match(/(倍率|スケール|scale)\s*([0-9.]{1,4})/i);
+  if (mag){ SETTINGS.ui.fontScale = Math.max(0.6, Math.min(1.5, parseFloat(mag[2]))); changes.push(`フォント倍率：${SETTINGS.ui.fontScale.toFixed(2)}`); }
+
+  // 面板留白
+  if (/(留白|余白|パディング|内側余白).*(多|大|増や|広く)/i.test(text)){ SETTINGS.panel.paddingX += 6; SETTINGS.panel.paddingY += 6; changes.push("面板余白：増"); }
+  if (/(留白|余白|パディング|内側余白).*(少|小|減ら|狭く)/i.test(text)){ SETTINGS.panel.paddingX = Math.max(12, SETTINGS.panel.paddingX - 6); SETTINGS.panel.paddingY = Math.max(8, SETTINGS.panel.paddingY - 6); changes.push("面板余白：減"); }
+
+  // 大小/纸型
+  const p = paperFromText(text);
+  if (p){ SETTINGS.canvas.width = p.w; SETTINGS.canvas.height = p.h; changes.push(`サイズ：${p.name}${p.orient}`); }
+
+  // 顶部色带自然语言
+  const bandInfo = applyBandNaturalLanguage(text);
+  if (bandInfo){
+    if (bandInfo.off === true) changes.push("上部の色帯：なし");
+    if (bandInfo.off === false) changes.push(`上部の色帯：表示, 高さ${SETTINGS.band.height}px`);
+    if (bandInfo.height) changes.push(`上部の色帯 高さ：${bandInfo.height}px`);
+    if (bandInfo.color)  changes.push(`上部の色帯 色：${bandInfo.color}`);
+    if (bandInfo.follow) changes.push("上部の色帯：カテゴリ連動");
+  }
+
+  return changed || !!p || !!bandInfo;
+}
+
+// 识别“这是编辑而不是新建”
+function looksLikeEdit(text){
+  return /(改|换|換|删除|去掉|不要|追加|追記|调整|調整|设置|设为|變更|変更|にする|に変更|サイズ|A[0-5]|px|枠|ストライプ|実線|斜线|斜紋|色帯|ヘッダー帯|字体|フォント|余白)/i.test(text);
+}
+
+function applyEditsNaturalLanguage(userText){
+  if (!lastSpec) return null;
+  const spec = deepClone(lastSpec);
+  const changes = [];
+
+  const textChanged = applyTextEdits(userText, spec, changes);
+  const styleChanged = applyStyleEdits(userText, spec, changes);
+
+  if (textChanged || styleChanged){
+    return { spec, summary: changes };
+  }
+  return null;
+}
+
+/* =========================
+ * 日本語の自然な返信
  * ========================= */
 function formatBotReply(spec, sizeInfo, bandInfo){
   const catMap = { warning:"黄色の警告", prohibition:"赤の禁止", mandatory:"青の指示", safe:"緑の安全", fire:"防火", neutral:"中立" };
@@ -470,22 +595,34 @@ function formatBotReply(spec, sizeInfo, bandInfo){
   if(en.title || en.subtitle) bits.push(`英文：${[en.title,en.subtitle].filter(Boolean).join(" / ")}`);
   if(zh.title || zh.subtitle || zh.note) bits.push(`中国語：${[zh.title,zh.subtitle,zh.note].filter(Boolean).join(" / ")}`);
   const sizeTxt = sizeInfo ? `${sizeInfo.name}・${sizeInfo.orient}（${sizeInfo.w}×${sizeInfo.h}px）` : `${SETTINGS.canvas.width}×${SETTINGS.canvas.height}px`;
-
-  // 色带描述
   let bandTxt = "";
   if (SETTINGS.band.height === 0) bandTxt = "上部の色帯：なし";
   else if (SETTINGS.band.followCategory) bandTxt = `上部の色帯：カテゴリ連動，高さ ${SETTINGS.band.height}px`;
   else bandTxt = `上部の色帯：固定色 ${SETTINGS.band.colorOverride}，高さ ${SETTINGS.band.height}px`;
-
   return `了解しました。内容に合わせてレイアウトを最適化しました。\n- ${bits.join("\n- ")}\n- スタイル：${catMap[spec.category]||spec.category}、枠は「${spec.border==="stripes"?"斜線":"実線"}」\n- 用紙サイズ：${sizeTxt}\n- ${bandTxt}\n右上のギアでフォント倍率・行間・斜線の太さ/間隔を調整できます。`;
+}
+function formatEditReply(changes){
+  if (!changes || !changes.length) return "ご指定の修正内容を確認しました（変更はありませんでした）。別の指示もどうぞ。";
+  return "承知しました。次の点を反映してポスターを更新しました：\n- " + changes.join("\n- ");
 }
 
 /* =========================
- * 生成フロー
+ * 生成フロー（先尝试“编辑”，否则“新建”）
  * ========================= */
 function parseJSONLoose(t){ if(!t) return null; const m=t.match(/```(?:json)?\s*([\s\S]*?)```/i); const body=m?m[1]:t; try{return JSON.parse(body);}catch{return null;} }
 
 async function generatePoster(userText){
+  // —— 先尝试对当前海报做“编辑” —— //
+  if (lastSpec && looksLikeEdit(userText)) {
+    const edited = applyEditsNaturalLanguage(userText);
+    if (edited){
+      addMsg("bot", formatEditReply(edited.summary));
+      drawPoster(edited.spec);
+      return;
+    }
+  }
+
+  // —— 否则走“新建生成”流程 —— //
   let data;
   if (engine) {
     const reply = await engine.chat.completions.create({
@@ -495,13 +632,8 @@ async function generatePoster(userText){
     data = parseJSONLoose(reply.choices?.[0]?.message?.content || "");
   }
 
-  // 尺寸先应用
   const sizeInfo = applyCanvasSizeBySpec(data?.size, userText);
-
-  // 顶部色带：自然语言解析（新增）
   const bandInfo = applyBandNaturalLanguage(userText);
-
-  // 预设与补正
   const preset = matchPreset(userText); if (preset) data = mergeWithPreset(data, preset);
 
   if (/(体温|検温|測温|测温|temperature\s*check|health\s*check|注意身体|体調|体调|发烧|fever)/i.test(userText)) {
@@ -610,8 +742,8 @@ promptEl.addEventListener("keydown", e => {
 });
 sendBtn.onclick = () => {
   const t = promptEl.value.trim();
-  if (t) { generatePoster(t); }
-  promptEl.value = "";
+  if (t) { addMsg("user", t); generatePoster(t); }
+  promptEl.value = ""; // 发送后清空输入栏
 };
 dlBtn.onclick = () => {
   const url = canvas.toDataURL("image/png");
