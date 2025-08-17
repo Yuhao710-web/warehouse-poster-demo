@@ -1,10 +1,13 @@
 /* =========================================================
- * Poster Generator — 安定版 app.js（最稳妥修复）
- * 重点：背景色/斜線色 指令稳妥生效（見える化＆自動切替）
- * 返信は日本語。設定はポスター完了/新規時に既定へリセット。
+ * Poster Generator — 安定版 app.js（最稳妥修复＋历史记录增强）
+ * - 颜色指令稳妥生效（背景=面板+外侧；斜線=自动切到斜線枠并上色）
+ * - 仅对当前海报生效；导出/完成/新建后自动恢复初始
+ * - 历史记录：本地保存、搜索/筛选、导出、置顶、会话分隔、自动避开标题
+ * - UI：齿轮图标放大且不遮标题；文本居中自适应；回车发送/Shift+回车换行（IME友好）
+ * - 系统回复：日语
  * ========================================================= */
 
-/* WebLLM（任意）: 可用则生成更聪明的文案；不可用也不影响基本功能 */
+/* WebLLM（可用则更智能；不可用也不影响基本功能） */
 let engine;
 (async () => {
   try {
@@ -81,7 +84,7 @@ function norm(s){
           .trim();
 }
 
-/* ---------- 颜色解析（超稳妥：支持 に/を/は、にしたい 等尾缀；命名色/#HEX/rgb/hsl） ---------- */
+/* ---------- 颜色解析（稳妥） ---------- */
 const COLOR_MAP = {
   red:"#C62828", yellow:"#F9A900", blue:"#005387", green:"#237F52", black:"#000000", white:"#ffffff", gray:"#9e9e9e", grey:"#9e9e9e",
   orange:"#FFA500", purple:"#800080", pink:"#FFC0CB", brown:"#8B4513", cyan:"#00BCD4", magenta:"#FF00FF", navy:"#000080", teal:"#008080",
@@ -351,10 +354,8 @@ function drawPoster(spec){
   L.blocks.forEach((b,bi)=>{ ctx.font=b.font; ctx.fillStyle=b.color; b.lines.forEach(ln=>{ ctx.fillText(ln, cx, y); y+=b.lineHeight; }); if (bi!==L.blocks.length-1) y += L.paraGap; });
 }
 
-/* ---------- 自然语言编辑（最稳妥修复核心） ---------- */
+/* ---------- 自然语言编辑（稳妥修复核心） ---------- */
 function applyBackgroundColorNaturalLanguage(text, changes){
-  // 目标：用户说“背景色を黄色にしたい”时，不管你能否看见，都要“看得见变化”
-  // 策略：模糊“背景/背景色” → 默认同时改【面板背景 + 画布外侧】
   const token = "([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)";
   let changed=false;
 
@@ -362,7 +363,7 @@ function applyBackgroundColorNaturalLanguage(text, changes){
   let m = text.match(new RegExp("(白い部分|白地|隙間|スキマ|斜線の隙間|縞の隙間|縞のすき間|斜線の白地|ストライプの隙間).*?(?:を|は|に|にして|に変更|にする|で)?\\s*"+token, "i"));
   if (m){ const col=resolveColor(m[2]); if(col){ SETTINGS.colors.ringBg=col; changes&&changes.push(`斜線の隙間：${col}`); changed=true; } }
 
-  // 外側/キャンバス
+  // 外侧/キャンバス
   m = text.match(new RegExp("(キャンバス|canvas|外側|背景全体|外周).*?(?:を|は|に|にして|に変更|にする|で)?\\s*"+token, "i"));
   if (m){ const col=resolveColor(m[2]); if(col){ SETTINGS.colors.canvasBg=col; changes&&changes.push(`背景全体：${col}`); changed=true; } }
 
@@ -387,7 +388,7 @@ function applyBackgroundColorNaturalLanguage(text, changes){
 function applyStyleEdits(text, spec, changes){
   let changed=false;
 
-  // 先处理颜色主题与背景（使“背景色…”马上可见）
+  // 先处理主题和背景
   const themeChanged  = applyThemeNaturalLanguage(text, changes);
   const bgChanged     = applyBackgroundColorNaturalLanguage(text, changes);
   changed = changed || themeChanged || bgChanged;
@@ -409,7 +410,7 @@ function applyStyleEdits(text, spec, changes){
   if (/(边框|框|枠).*(斜纹|斜線|ストライプ)/i.test(text)){ spec.border="stripes"; changes.push("枠：斜線"); changed=true; }
   if (/(边框|框|枠).*(实线|實線|実線|ソリッド)/i.test(text)){ spec.border="solid"; changes.push("枠：実線"); changed=true; }
 
-  // —— 斜線/枠の色（“斜線を黄色にしたい”はここで必ず命中）——
+  // 斜線/枠の色
   const token="([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)";
   let mc = text.match(new RegExp("(斜线|斜線|斜紋|ストライプ|枠線|枠).*?(?:を|は)?\\s*"+token+"(?:にしたい|に|にして|に変更|にする)?", "i"));
   if (mc){
@@ -421,7 +422,7 @@ function applyStyleEdits(text, spec, changes){
       changed=true;
     }
   } else {
-    // 有色词的保底匹配（包含「色/カラー」）
+    // 保底：带“色/カラー”
     let bcMatch =
       text.match(new RegExp("(斜纹|斜線|ストライプ|枠線|枠).*?(?:颜色|色|カラー|color).*?(?:改成|改为|变成|にして|に変更|にする|で|は|を|に)?\\s*"+token, "i")) ||
       text.match(new RegExp("(斜纹|斜線|ストライプ|枠線|枠).*?(?:を|は|に|にして|に変更|にする|で|改成|改为|变成)\\s*"+token, "i"));
@@ -436,7 +437,7 @@ function applyStyleEdits(text, spec, changes){
     }
   }
 
-  // カテゴリ直指定（色帯連動色にも影響）
+  // カテゴリ直指定
   if (/(警告|注意|warning)/i.test(text)){ spec.category="warning";     changes.push("カテゴリ：警告");     changed=true; }
   if (/(禁止|不可|prohibition)/i.test(text)){ spec.category="prohibition"; changes.push("カテゴリ：禁止");     changed=true; }
   if (/(指示|必须|必須|mandatory)/i.test(text)){ spec.category="mandatory";   changes.push("カテゴリ：指示");     changed=true; }
@@ -449,7 +450,7 @@ function applyStyleEdits(text, spec, changes){
   const gapN = text.match(/(间隔|間隔)\s*([0-9]{1,3})\s*(px|ピクセル)?/i);
   if (gapN){ SETTINGS.ui.stripeGap=Math.max(10, Math.min(60, +gapN[2])); changes.push(`斜線の間隔：${SETTINGS.ui.stripeGap}`); changed=true; }
 
-  // フォント倍率/面板余白
+  // 字号倍率/面板余白
   if (/(字号|文字|フォント).*(大|大きく|増や|放大)/i.test(text)){ SETTINGS.ui.fontScale=Math.min(1.5, SETTINGS.ui.fontScale+0.1); changes.push(`フォント倍率：${SETTINGS.ui.fontScale.toFixed(2)}`); changed=true; }
   if (/(字号|文字|フォント).*(小|小さく|減ら|缩小)/i.test(text)){ SETTINGS.ui.fontScale=Math.max(0.6, SETTINGS.ui.fontScale-0.1); changes.push(`フォント倍率：${SETTINGS.ui.fontScale.toFixed(2)}`); changed=true; }
 
@@ -538,7 +539,7 @@ function textHasNewCue(text){
 }
 function textHasEditCue(text){
   if (!text) return false;
-  if (!EDIT_TARGETS_RE.test(text)) return false; // 必须出现“可编辑对象”
+  if (!EDIT_TARGETS_RE.test(text)) return false;
   return /(改|换|換|设置|设为|變更|変更|にする|に変更|直す|修正|編集|調整|追加|追記|削除|消す|増や|減ら|大きく|小さく|太く|細く|厚く|薄く)/i.test(text) || true;
 }
 function topicLooksDifferent(text, lastSpec){
@@ -561,7 +562,7 @@ function classifyIntent(text, lastSpec){
   return { type: EDIT_TARGETS_RE.test(t) ? "edit" : "new" };
 }
 
-/* ---------- 文案编辑（少量必要） ---------- */
+/* ---------- 文案编辑 ---------- */
 function quoted(text){ const m=text.match(/[「『“"']([^「『“"']+)[」』”"']/); return m?m[1].trim():null; }
 function pickLangKey(t){ if (/(日文|日語|日本語|JP)/i.test(t)) return "jp"; if (/(英文|英語|EN)/i.test(t)) return "en"; if (/(中文|中国語|ZH)/i.test(t)) return "zh"; return "jp"; }
 function ensureLang(obj,k){ obj[k]=obj[k]||{}; return obj[k]; }
@@ -624,6 +625,18 @@ function formatEditReply(changes){
 
 /* ---------- 生成主流程 ---------- */
 function parseJSONLoose(t){ if(!t) return null; const m=t.match(/```(?:json)?\s*([\s\S]*?)```/i); const body=m?m[1]:t; try{return JSON.parse(body);}catch{return null;} }
+function mergeWithPreset(a,b){
+  if(!b) return a;
+  const m=sc(a||{});
+  m.jp={...(a?.jp||{}),...(b.jp||{})};
+  m.en={...(a?.en||{}),...(b.en||{})};
+  m.zh={...(a?.zh||{}),...(b.zh||{})};
+  if(b.category) m.category=b.category;
+  if(b.border)   m.border=b.border;
+  if(b.size)     m.size=b.size;
+  if(b.icon)     m.icon=b.icon;
+  return m;
+}
 
 async function generatePoster(userText){
   const text = norm(userText);
@@ -632,6 +645,7 @@ async function generatePoster(userText){
   if (intent.type === "finalize"){
     resetRuntimeSettings();
     addMsg("bot", "ポスターの仕上げを確認しました。設定を初期状態に戻しました。");
+    startNewSession();                    // 会话分隔
     return;
   }
 
@@ -650,18 +664,9 @@ async function generatePoster(userText){
     }
   }
 
-  // 编辑：在当前图上修改
-  if (intent.type === "edit" && lastSpec){
-    const spec=sc(lastSpec), changes=[];
-    const textChanged = applyTextEdits(text, spec, changes);
-    const styleChanged= applyStyleEdits(text, spec, changes);
-    if (textChanged || styleChanged){ drawPoster(spec); addMsg("bot", formatEditReply(changes)); }
-    else { addMsg("bot", formatEditReply([])); }
-    return;
-  }
-
-  // 新建：重置设定
+  // 新建：如果已有上一张，则视为开始新会话
   if (intent.type === "new" || !lastSpec){
+    if (lastSpec) startNewSession();
     resetRuntimeSettings();
   }
 
@@ -681,14 +686,14 @@ async function generatePoster(userText){
   const preset = matchPreset(text);
   if (preset) data = mergeWithPreset(data, preset);
 
-  // 常见兜底：未命中时也给合理分类与枠
+  // 常见兜底：未命中时也给合理分类与枠（初始为斜線）
   if (!data) {
     data = { jp:{title:"通行注意", subtitle:"走行車両あり"}, en:{subtitle:"Watch for vehicles"}, zh:{note:"行人应小心行驶车辆"}, category:"warning", border:"stripes", size:"A3横", icon:"forklift" };
   }
 
   // 大小
   const sizeInfo = applyCanvasSizeBySpec(data.size, text);
-  // 上部色带、主题色/背景（即使在新建阶段，也允许自然语言先改色）
+  // 主题/背景/色带（允许在新建阶段就改色）
   applyThemeNaturalLanguage(text);
   applyBackgroundColorNaturalLanguage(text);
   const bandInfo = applyBandNaturalLanguage(text);
@@ -702,18 +707,6 @@ async function generatePoster(userText){
 
   drawPoster(spec);
   addMsg("bot", formatBotReply(spec, sizeInfo, bandInfo));
-}
-function mergeWithPreset(a,b){
-  if(!b) return a;
-  const m=sc(a||{});
-  m.jp={...(a?.jp||{}),...(b.jp||{})};
-  m.en={...(a?.en||{}),...(b.en||{})};
-  m.zh={...(a?.zh||{}),...(b.zh||{})};
-  if(b.category) m.category=b.category;
-  if(b.border)   m.border=b.border;
-  if(b.size)     m.size=b.size;
-  if(b.icon)     m.icon=b.icon;
-  return m;
 }
 
 /* ---------- 控制面板（齿轮更大，不挡标题） ---------- */
@@ -779,8 +772,68 @@ function createControlPanel(){
 function redrawLast(){ if(lastSpec) drawPoster(lastSpec); }
 createControlPanel();
 
-/* ---------- 指令履历（左上按钮下移，不遮标题） ---------- */
-(function createHistory(){
+/* ---------- 历史记录（增强版 v2） ---------- */
+// 状态与存取
+const HISTORY_KEY = "poster_history_v2";
+const MAX_HISTORY = 200;
+let USER_HISTORY = [];
+let CURRENT_SESSION_ID = 1;
+
+function loadHistory(){
+  try{
+    const raw = localStorage.getItem(HISTORY_KEY);
+    if (!raw) return;
+    const o = JSON.parse(raw);
+    if (Array.isArray(o.items)) USER_HISTORY = o.items;
+    if (typeof o.sessionLast === "number") CURRENT_SESSION_ID = Math.max(1, o.sessionLast);
+  }catch{}
+}
+function saveHistory(){
+  try{
+    localStorage.setItem(HISTORY_KEY, JSON.stringify({
+      items: USER_HISTORY.slice(0, MAX_HISTORY),
+      sessionLast: CURRENT_SESSION_ID
+    }));
+  }catch{}
+}
+function startNewSession(){
+  CURRENT_SESSION_ID += 1;
+  saveHistory();
+  if (window.__hist_setSessionId) window.__hist_setSessionId(CURRENT_SESSION_ID);
+}
+function classifyCommandKind(text){
+  const r = classifyIntent(text, lastSpec);
+  if (r.type === "finalize") return "完了";
+  if (r.type === "new")      return "新規";
+  if (r.type === "edit")     return "編集";
+  return "生成";
+}
+function timeLabel(ms){
+  const d=new Date(ms), two=n=>n<10?"0"+n:n;
+  return `${two(d.getHours())}:${two(d.getMinutes())}`;
+}
+function pushHistory(text){
+  const item = {
+    id: Date.now() + Math.random(),
+    text,
+    kind: classifyCommandKind(text),
+    timeMs: Date.now(),
+    target: (lastSpec?.jp?.title || lastSpec?.en?.title || lastSpec?.zh?.title || "—"),
+    sessionId: CURRENT_SESSION_ID,
+    pinned: false
+  };
+  USER_HISTORY.unshift(item);
+  const pinned = USER_HISTORY.filter(x=>x.pinned);
+  const normal = USER_HISTORY.filter(x=>!x.pinned).slice(0, MAX_HISTORY - pinned.length);
+  USER_HISTORY = [...pinned, ...normal];
+  saveHistory();
+  if (window.renderHistory) window.renderHistory();
+}
+
+// 面板
+function createHistoryPanelEnhanced(){
+  loadHistory();
+
   const btn=document.createElement("button");
   btn.textContent="📜"; btn.title="指令履歴";
   btn.style.cssText=`
@@ -793,31 +846,148 @@ createControlPanel();
 
   const wrap=document.createElement("div");
   wrap.style.cssText=`
-    position: fixed; top: 84px; left: 16px; z-index: 999;
-    width: 320px; max-height: 80vh; padding: 12px; border-radius: 12px;
+    position: fixed; top: 84px; left: 16px; z-index: 1200;
+    width: 340px; max-height: 80vh; padding: 12px; border-radius: 12px;
     background: rgba(255,255,255,.98); border: 1px solid #e6e8eb;
     font: 13px/1.4 system-ui,-apple-system,Segoe UI,Roboto,"Noto Sans JP",sans-serif;
     box-shadow: 0 10px 24px rgba(0,0,0,.12); display: none;
   `;
-  wrap.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-    <strong>指令履歴</strong>
-    <button id="h-close" style="padding:6px 10px;border:1px solid #e5e7eb;border-radius:8px;background:#f3f4f6;cursor:pointer;">✕</button>
-  </div>
-  <div id="h-list" style="overflow:auto;max-height:calc(80vh - 90px);"></div>`;
+  wrap.innerHTML = `
+    <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;margin-bottom:8px;">
+      <strong style="font-size:14px;">指令履歴</strong>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <span id="hist-sess" style="font-size:11px;color:#6b7280;">セッション: <b id="hist-sess-id"></b></span>
+        <button id="hist-export" style="padding:6px 10px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;cursor:pointer;">エクスポート</button>
+        <button id="hist-clear"  style="padding:6px 10px;border:1px solid #fee2e2;border-radius:8px;background:#fff1f2;color:#b91c1c;cursor:pointer;">クリア</button>
+        <button id="hist-close"  style="padding:6px 10px;border:1px solid #e5e7eb;border-radius:8px;background:#f3f4f6;cursor:pointer;">✕</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">
+      <input id="hist-q" placeholder="検索（例：背景 / 斜線 / 黄色）"
+             style="flex:1 1 auto;padding:6px 10px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;">
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">
+      <button data-filter="all" class="hist-tab hist-on">全部</button>
+      <button data-filter="session" class="hist-tab">当前会话</button>
+      <button data-filter="new" class="hist-tab">新規</button>
+      <button data-filter="edit" class="hist-tab">編集</button>
+      <style>
+        .hist-tab{padding:6px 10px;border:1px solid #e5e7eb;border-radius:999px;background:#fff;cursor:pointer;font-size:12px;}
+        .hist-on{background:#0ea5e9;color:#fff;border-color:#0ea5e9;}
+        .hist-pin{color:#f59e0b;margin-left:6px;cursor:pointer;}
+        .hist-btn{padding:4px 8px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;cursor:pointer;font-size:12px;}
+        .hist-btn-danger{border-color:#fecaca;background:#fff1f2;color:#b91c1c;}
+        .hist-row{border:1px solid #e5e7eb;border-radius:10px;padding:8px 10px;margin-bottom:8px;background:#fff;display:flex;gap:8px;align-items:flex-start;justify-content:space-between;}
+        .hist-kind{display:inline-block;padding:2px 8px;margin-right:6px;border-radius:999px;border:1px solid; font-weight:600;font-size:11px;}
+        .hist-kind-new{background:#ecfdf5;color:#065f46;border-color:#a7f3d0;}
+        .hist-kind-edit{background:#eff6ff;color:#1e40af;border-color:#bfdbfe;}
+        .hist-kind-gen{background:#f3f4f6;color:#374151;border-color:#e5e7eb;}
+        .hist-text{font-size:13px;color:#111827;margin-top:4px;word-break:break-word;}
+        .hist-meta{font-size:11px;color:#6b7280;margin-top:4px;}
+      </style>
+    </div>
+    <div id="hist-list" style="overflow:auto; max-height: calc(80vh - 180px);"></div>
+  `;
   document.body.appendChild(wrap);
 
-  function push(text){
-    const row=document.createElement("div");
-    row.style.cssText="border:1px solid #e5e7eb;border-radius:10px;padding:8px 10px;margin-bottom:8px;background:#fff;font-size:13px;color:#111827;";
-    row.textContent=text;
-    const list=wrap.querySelector("#h-list"); list.prepend(row);
+  // 动态避开页头/标题，避免遮挡
+  function computeHistoryOffsets(){
+    const header = document.querySelector("header, .header, .app-header, #header, [role='banner']");
+    const title  = document.querySelector(".title, .app-title, h1");
+    let safeTop = 72;
+    if (header){ const r=header.getBoundingClientRect(); safeTop=Math.max(safeTop, r.bottom+12); }
+    else if (title){ const r=title.getBoundingClientRect(); safeTop=Math.max(safeTop, r.bottom+12); }
+    btn.style.top  = safeTop + "px";
+    wrap.style.top = (safeTop + 68) + "px";
   }
-  btn.onclick=()=>{ wrap.style.display = wrap.style.display==="none" ? "block":"none"; };
-  wrap.querySelector("#h-close").onclick=()=> wrap.style.display="none";
+  computeHistoryOffsets();
+  window.addEventListener("resize", computeHistoryOffsets);
+  const hdr = document.querySelector("header, .header, .app-header, #header, [role='banner']");
+  if (hdr && "ResizeObserver" in window){ const ro=new ResizeObserver(()=>computeHistoryOffsets()); ro.observe(hdr); }
 
-  // 暴露一个简易记录器
-  window.__pushHistorySimple = push;
-})();
+  const listEl = wrap.querySelector("#hist-list");
+  const qEl    = wrap.querySelector("#hist-q");
+  const sessIdEl = wrap.querySelector("#hist-sess-id");
+  const tabs = wrap.querySelectorAll(".hist-tab");
+
+  window.__hist_setSessionId = (sid)=>{ sessIdEl.textContent = `#${sid}`; };
+  window.__hist_setSessionId(CURRENT_SESSION_ID);
+
+  function activeFilter(){ const a=[...tabs].find(b=>b.classList.contains("hist-on")); return a?.dataset?.filter || "all"; }
+  tabs.forEach(b=> b.onclick = ()=>{ tabs.forEach(x=>x.classList.remove("hist-on")); b.classList.add("hist-on"); renderHistory(); });
+  qEl.addEventListener("input", ()=> renderHistory());
+
+  window.renderHistory = function renderHistory(){
+    const q=qEl.value.trim().toLowerCase(), filter=activeFilter();
+    const items=USER_HISTORY.slice()
+      .sort((a,b)=>(b.pinned-a.pinned)||(b.timeMs-a.timeMs))
+      .filter(it=>{
+        if (filter==="session" && it.sessionId!==CURRENT_SESSION_ID) return false;
+        if (filter==="new"     && it.kind!=="新規") return false;
+        if (filter==="edit"    && it.kind!=="編集") return false;
+        if (q && !(`${it.text} ${it.target}`.toLowerCase().includes(q))) return false;
+        return true;
+      });
+
+    listEl.innerHTML="";
+    if (!items.length){
+      const empty=document.createElement("div");
+      empty.style.cssText="padding:10px;color:#6b7280;font-size:12px;border:1px dashed #e5e7eb;border-radius:10px;text-align:center;";
+      empty.textContent="該当する履歴はありません。";
+      listEl.appendChild(empty);
+      return;
+    }
+
+    items.forEach(item=>{
+      const row=document.createElement("div"); row.className="hist-row";
+      const left=document.createElement("div"); left.style.cssText="flex:1 1 auto; min-width:0;";
+      const right=document.createElement("div"); right.style.cssText="display:flex; flex-direction:column; gap:6px;";
+
+      const kind=document.createElement("span");
+      kind.className="hist-kind "+(item.kind==="新規"?"hist-kind-new":item.kind==="編集"?"hist-kind-edit":"hist-kind-gen");
+      kind.textContent=item.kind;
+
+      const pin=document.createElement("span"); pin.className="hist-pin"; pin.title=item.pinned?"固定解除":"固定"; pin.textContent=item.pinned?"★":"☆";
+      pin.onclick=()=>{ item.pinned=!item.pinned; saveHistory(); renderHistory(); };
+
+      const time=document.createElement("span"); time.textContent=` ${timeLabel(item.timeMs)} ・S#${item.sessionId}`; time.style.cssText="font-size:11px;color:#6b7280;margin-left:4px;";
+
+      const txt=document.createElement("div"); txt.className="hist-text"; txt.textContent=item.text; txt.title="クリックで入力欄に挿入"; txt.style.cursor="text";
+      txt.onclick=()=>{ promptEl.value=item.text; promptEl.focus(); };
+
+      const tgt=document.createElement("div"); tgt.className="hist-meta"; tgt.textContent=item.target?`対象：${item.target}`:"対象：—";
+
+      left.appendChild(kind); left.appendChild(pin); left.appendChild(time); left.appendChild(txt); left.appendChild(tgt);
+
+      const btnApply=document.createElement("button"); btnApply.className="hist-btn"; btnApply.textContent="適用"; btnApply.onclick=()=> generatePoster(item.text);
+      const btnCopy=document.createElement("button"); btnCopy.className="hist-btn"; btnCopy.textContent="コピー"; btnCopy.onclick=async()=>{ try{ await navigator.clipboard.writeText(item.text); btnCopy.textContent="✓ コピー"; setTimeout(()=>btnCopy.textContent="コピー",900);}catch{} };
+      const btnDel=document.createElement("button"); btnDel.className="hist-btn hist-btn-danger"; btnDel.textContent="削除"; btnDel.onclick=()=>{ USER_HISTORY=USER_HISTORY.filter(x=>x.id!==item.id); saveHistory(); renderHistory(); };
+
+      right.appendChild(btnApply); right.appendChild(btnCopy); right.appendChild(btnDel);
+      row.appendChild(left); row.appendChild(right);
+      listEl.appendChild(row);
+    });
+  };
+
+  btn.onclick=()=>{ wrap.style.display = (wrap.style.display==="none" ? "block":"none"); renderHistory(); };
+  wrap.querySelector("#hist-close").onclick=()=> wrap.style.display="none";
+  wrap.querySelector("#hist-clear").onclick=()=>{
+    if(!confirm("履歴をすべて削除しますか？")) return;
+    USER_HISTORY.length=0; saveHistory(); renderHistory();
+  };
+  wrap.querySelector("#hist-export").onclick=()=>{
+    const lines=USER_HISTORY.slice().sort((a,b)=>a.timeMs-b.timeMs)
+      .map(h=>`[${new Date(h.timeMs).toLocaleString()}]\tS#${h.sessionId}\t${h.kind}\t${h.text}`);
+    const blob=new Blob([lines.join("\n")],{type:"text/plain;charset=utf-8"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a"); a.href=url; a.download="指令履歴.txt"; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url), 500);
+  };
+
+  // 初次渲染
+  renderHistory();
+}
+createHistoryPanelEnhanced();
 
 /* ---------- 输入/键盘（IME 友好；回车发送/Shift+回车换行） ---------- */
 let composing=false;
@@ -828,7 +998,11 @@ promptEl.addEventListener("keydown", e => {
 });
 sendBtn.onclick=()=>{
   const t=promptEl.value.trim();
-  if (t){ addMsg("user", t); window.__pushHistorySimple && window.__pushHistorySimple(t); generatePoster(t); }
+  if (t){
+    addMsg("user", t);
+    pushHistory(t);          // 记录历史
+    generatePoster(t);
+  }
   promptEl.value="";
 };
 dlBtn.onclick=()=>{
@@ -836,9 +1010,10 @@ dlBtn.onclick=()=>{
   const a=document.createElement("a"); a.href=url; a.download="poster.png"; a.click();
   resetRuntimeSettings();
   addMsg("bot","書き出しが完了しました。次のポスターは既定の配色・サイズから開始します。");
+  startNewSession();   // 新会话
 };
 
-/* ---------- 初期表示：斜線（要求通り） ---------- */
+/* ---------- 初期显示：斜線（按你的要求） ---------- */
 drawPoster({
   jp: { title: "安全第一", subtitle: "指差呼称・周囲確認・事故ゼロへ" },
   en: { subtitle: "Safety First" },
