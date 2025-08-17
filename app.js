@@ -39,7 +39,8 @@ const SETTINGS = {
   stripe: {                                   // 斜线警示边框参数（默认值，会被 UI 覆盖）
     width: 22,
     gap: 28,
-    frame: 16
+    frame: 16,
+    ringInset: 56                             // 环形条纹内缩距离（确保不遮文字）
   },
   solidBorderWidth: 14,                       // 实线边框线宽
   fonts: {
@@ -108,28 +109,45 @@ const SYSTEM_PROMPT = `
 `;
 
 /* =========================
- * 关键词预设 & 类别矫正（非常口 / 安全第一）
+ * 关键词预设 & 类别矫正
+ * - 新增：体温 / 健康提示 → mandatory（蓝）
+ * - 既有：非常口 → safe（绿）；安全/安全第一 → warning（黄）
  * ========================= */
 const PRESETS = [
+  // 体温/健康
+  {
+    match: /(体温|検温|測温|测温|temperature\s*check|health\s*check|注意身体|体調|体调|发烧|fever)/i,
+    spec: {
+      jp: { title: "体温測定", note: "体調に変化があれば すぐに報告してください" },
+      en: { subtitle: "Have you taken your temperature?", note: "Please report any changes immediately" },
+      zh: { note: "是否已测量体温？有异常请立即报告" },
+      category: "mandatory", // 蓝色
+      border: "stripes",
+      size: "A3横",
+      icon: "thermometer"
+    }
+  },
+  // 非常口
   {
     match: /(非常口|emergency\s*exit|避難口)/i,
     spec: {
       jp: { title: "非常口", subtitle: "前に物を置かない" },
       en: { title: "Emergency exit", subtitle: "Do not place items here" },
       zh: { note: "紧急出口前禁止放置物品" },
-      category: "safe",
-      border: "solid",
+      category: "safe",   // 绿色
+      border: "solid",    // 实线
       size: "A3横",
       icon: "exit"
     }
   },
+  // 安全/安全第一
   {
     match: /(安全(第一)?|safety( first)?)/i,
     spec: {
       jp: { title: "安全第一", subtitle: "指差呼称・周囲確認" },
       en: { title: "Safety First" },
       zh: { note: "安全第一，谨慎作业" },
-      category: "warning",
+      category: "warning", // 黄色
       border: "solid",
       size: "A3横",
       icon: "helmet"
@@ -199,23 +217,24 @@ function wrapLines(text, font, maxWidth) {
 }
 
 /* =========================
- * 边框：斜线警示 & 实线
+ * 边框：斜线警示（环形） & 实线
+ * - 斜纹只在四周“环形区域”绘制，不进入文字区域
  * ========================= */
 function drawStripeBorder(ctx, w, h, color){
   const stripeW = SETTINGS.ui.stripeWidth;
   const gap     = SETTINGS.ui.stripeGap;
   const frame   = SETTINGS.stripe.frame;
+  const inset   = SETTINGS.stripe.ringInset;
 
   ctx.save();
-  // 外框
-  ctx.lineWidth = frame;
-  ctx.strokeStyle = color;
-  ctx.strokeRect(10, 10, w - 20, h - 20);
-  // 斜纹区域
-  ctx.beginPath();
-  ctx.rect(28, 28, w - 56, h - 56);
-  ctx.clip();
-  // 斜纹
+
+  // 1) 先建立“环形”裁剪区域：外矩形 - 内矩形（evenodd）
+  const path = new Path2D();
+  path.rect(10, 10, w - 20, h - 20); // 外框
+  path.rect(10 + inset, 10 + inset, w - 20 - 2*inset, h - 20 - 2*inset); // 内框
+  ctx.clip(path, "evenodd");
+
+  // 2) 在环形区域内绘制斜纹
   ctx.strokeStyle = color;
   ctx.lineWidth = stripeW;
   const diag = Math.sqrt(w*w + h*h);
@@ -226,6 +245,13 @@ function drawStripeBorder(ctx, w, h, color){
     ctx.lineTo(x, diag * 2);
     ctx.stroke();
   }
+  ctx.restore();
+
+  // 3) 外框描边（增强边界）
+  ctx.save();
+  ctx.lineWidth = frame;
+  ctx.strokeStyle = color;
+  ctx.strokeRect(10, 10, w - 20, h - 20);
   ctx.restore();
 }
 
@@ -244,7 +270,7 @@ function drawPoster(spec){
   ctx.fillStyle = "#fff"; ctx.fillRect(0,0,W,H);
   ctx.fillStyle = band;   ctx.fillRect(0,0,W,SETTINGS.bandHeight);
 
-  // 边框（条纹取类别色，实线同色）
+  // 边框（条纹/实线围绕）
   if (spec.border === "stripes") {
     drawStripeBorder(ctx, W, H, band);
   } else if (spec.border === "solid") {
@@ -270,6 +296,7 @@ function drawPoster(spec){
     const lines = fit.wrapped ? wrapLines(jp.title, fit.font, maxWidth) : [jp.title];
     addBlock(lines, fit.font, "#111", SETTINGS.lineHeights.jpTitle);
   }
+
   // 其余文本：把字号整体 * scale 再换行
   function scaleFont(fontSpec){ // 把指定字体的 px * scale
     const m = fontSpec.match(/(\d+(?:\.\d+)?)px/);
@@ -317,6 +344,27 @@ function drawPoster(spec){
 }
 
 /* =========================
+ * 自然语言回复（更拟人化）
+ * ========================= */
+function formatBotReply(spec, userText){
+  const catMap = {
+    warning: "黄色警示",
+    prohibition: "红色禁止",
+    mandatory: "蓝色指示",
+    safe: "绿色安全",
+    fire: "防火",
+    neutral: "中性"
+  };
+  const jp = spec.jp || {}, en = spec.en || {}, zh = spec.zh || {};
+  const parts = [];
+  if (jp.title) parts.push(`主标题（日文）：「${jp.title}」${jp.subtitle ? `（${jp.subtitle}）` : ""}`);
+  if (en.title || en.subtitle) parts.push(`英文：${[en.title, en.subtitle].filter(Boolean).join(" / ")}`);
+  if (zh.title || zh.subtitle || zh.note) parts.push(`中文：${[zh.title, zh.subtitle, zh.note].filter(Boolean).join(" / ")}`);
+  const style = `风格：${catMap[spec.category] || spec.category}，边框「${spec.border === "stripes" ? "斜纹" : spec.border === "solid" ? "实线" : "无"}」。`;
+  return `好的，我按照你的描述做了一张海报：\n- ${parts.join("\n- ")}\n- ${style}\n右上角齿轮可以继续微调字体大小、段落间距和斜纹粗细/间距～`;
+}
+
+/* =========================
  * JSON 解析 & 生成流程（含预设与矫正）
  * ========================= */
 function parseJSONLoose(text){
@@ -342,13 +390,16 @@ async function generatePoster(userText){
     data = parseJSONLoose(raw);
   }
 
-  // 预设匹配（非常口 / 安全第一 等）
+  // 预设匹配（体温/健康；非常口；安全第一）
   const preset = matchPreset(userText);
-  if (preset) {
-    data = mergeWithPreset(data, preset);
-  }
+  if (preset) data = mergeWithPreset(data, preset);
 
   // 类别兜底矫正
+  if (/(体温|検温|測温|测温|temperature\s*check|health\s*check|注意身体|体調|体调|发烧|fever)/i.test(userText)) {
+    data = data || {};
+    data.category = "mandatory";
+    data.border = data.border || "stripes";
+  }
   if (/(非常口|emergency\s*exit|避難口)/i.test(userText)) {
     data = data || {};
     data.category = "safe";
@@ -392,40 +443,36 @@ async function generatePoster(userText){
     icon: data.icon || ""
   };
 
-  addMsg("bot",
-    `JP: ${spec.jp.title || ""}${spec.jp.subtitle ? " / " + spec.jp.subtitle : ""}\n` +
-    `EN: ${spec.en.title || ""}${spec.en.subtitle ? " / " + spec.en.subtitle : ""}\n` +
-    `ZH: ${spec.zh.title || ""}${spec.zh.subtitle ? " / " + spec.zh.subtitle : ""}\n` +
-    `カテゴリ: ${spec.category}, 枠: ${spec.border}`
-  );
-
+  addMsg("bot", formatBotReply(spec, userText));
   drawPoster(spec);
 }
 
 /* =========================
- * 可折叠控制面板（右上角）
+ * 可折叠控制面板（右上角）— 齿轮更大
  * ========================= */
 function createControlPanel(){
-  // Toggle 按钮
+  // Toggle 按钮（更大、图标更显眼）
   const btn = document.createElement("button");
   btn.textContent = "⚙︎";
   btn.title = "显示/隐藏参数面板";
   btn.style.cssText = `
     position: fixed; top: 16px; right: 16px; z-index: 1000;
-    width: 40px; height: 40px; border-radius: 20px; border: none;
-    background: #0a84ff; color: #fff; font-weight: 800; cursor: pointer;
-    box-shadow: 0 2px 8px rgba(0,0,0,.15);
+    width: 56px; height: 56px; border-radius: 28px; border: none;
+    background: #0a84ff; color: #fff; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 28px; line-height: 1;
+    box-shadow: 0 6px 18px rgba(10,132,255,.35);
   `;
   document.body.appendChild(btn);
 
   // 面板
   const panel = document.createElement("div");
   panel.style.cssText = `
-    position: fixed; top: 64px; right: 16px; z-index: 999;
-    width: 240px; padding: 12px; border-radius: 10px;
+    position: fixed; top: 84px; right: 16px; z-index: 999;
+    width: 260px; padding: 12px; border-radius: 12px;
     background: rgba(255,255,255,.98); border: 1px solid #e6e8eb;
     font: 13px/1.4 system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif;
-    box-shadow: 0 6px 20px rgba(0,0,0,.12); display: none;
+    box-shadow: 0 10px 24px rgba(0,0,0,.12); display: none;
   `;
   panel.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
@@ -486,7 +533,7 @@ function redrawLast(){ if(lastSpec) drawPoster(lastSpec); }
 createControlPanel();
 
 /* =========================
- * 事件 & 初始海报
+ * 输入/下载/初始海报
  * ========================= */
 sendBtn.onclick = () => {
   const t = promptEl.value.trim();
