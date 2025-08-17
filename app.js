@@ -12,7 +12,7 @@ let engine;
 })();
 
 /* =========================
- * DOM & Canvas
+ * DOM
  * ========================= */
 const messagesEl = document.getElementById("messages"),
       promptEl   = document.getElementById("prompt"),
@@ -22,28 +22,25 @@ const messagesEl = document.getElementById("messages"),
       dlBtn      = document.getElementById("download");
 
 function addMsg(role, text){
-  // 只显示系统/机器人消息；不显示用户消息
+  // 只显示机器人消息
   if (role === "user") return;
   const div = document.createElement("div");
-  div.className = "msg " + (role === "user" ? "user" : "bot");
+  div.className = "msg bot";
   div.textContent = text;
   messagesEl.appendChild(div);
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
 /* =========================
- * 設定（フォント拡大 & 自動調整）
+ * 設定
  * ========================= */
 const SETTINGS = {
-  // 默认 A3 横向（与你之前一致）
-  canvas: { width: 1404, height: 993 },
+  canvas: { width: 1404, height: 993 },   // 既定 A3 横
   bandHeight: 160,
   marginX: 60,
-  stripe: {
-    width: 22, gap: 28, frame: 16,
-    ringPadding: 32   // 内容面板相对文字块的内边距
-  },
+  stripe: { width: 22, gap: 28, frame: 16, ringGap: 10 }, // ringGap: 斜纹与面板的最小间距
   solidBorderWidth: 14,
+  panel: { paddingX: 42, paddingY: 30, radius: 18, marginX: 40, marginY: 24, shadow: true },
   fonts: {
     jpTitle:    "800 90px 'Noto Sans JP'",
     jpSubtitle: "600 46px 'Noto Sans JP'",
@@ -69,7 +66,7 @@ const SETTINGS = {
 };
 
 /* =========================
- * カテゴリ配色
+ * カラー
  * ========================= */
 const SAFETY = {
   warning:     { base: "#F9A900" },
@@ -81,11 +78,11 @@ const SAFETY = {
 };
 
 /* =========================
- * LLM システムプロンプト（JSON 返却）
+ * LLM プロンプト
  * ========================= */
 const SYSTEM_PROMPT = `
 あなたは倉庫安全ポスターのコピーライター兼DTP担当です。
-ユーザーの要望を現場向けの掲示ポスターに整え、次のJSONのみで返答してください（説明文や余計な文字は不要）。
+必ず次のJSONのみで返答してください。
 
 {
   "jp": { "title":"", "subtitle":"", "note":"" },
@@ -93,60 +90,45 @@ const SYSTEM_PROMPT = `
   "zh": { "title":"", "subtitle":"", "note":"" },
   "category": "warning|prohibition|mandatory|safe|fire|neutral",
   "border": "stripes|solid|none",
-  "size": "A3横|A3縦|A4横|A4縦 など（任意）",
-  "icon": "任意キーワード（例：forklift, pedestrian, exit）"
+  "size": "A3横|A3縦|A4横|A4縦|A0~A5 など",
+  "icon": "任意キーワード"
 }
 
-必須:
-- jp.title は1行で簡潔（例: 通行注意 / 仮置き禁止 / 非常口 / 体温測定 / 衝突注意）
-- category は内容に応じて適切に（注意=warning, 禁止=prohibition, 指示=mandatory, 安全= safe）
-- border は 注意/禁止→stripes を推奨、区域/情報→solid、不要なら none
-- EN/ZH も可能な範囲で補完（なければ空文字で可）
+必須: jp.title は1行で簡潔（例: 通行注意 / 仮置き禁止 / 非常口 / 体温測定 / 衝突注意）
 `;
 
 /* =========================
- * 纸张尺寸解析（自然语言）
+ * 尺寸解析（自然语言）
  * ========================= */
 const SQRT2 = Math.SQRT2;
-const PAPER_BASE = { name:"A3", orient:"横", w:1404, h:993 }; // 你的既定基准
+const PAPER_BASE = { name:"A3", orient:"横", w:1404, h:993 };
 function paperFromText(text){
-  // 1) 解析 A0~A5 + 横/縦/landscape/portrait
-  const m = text.match(/A([0-5])\s*(横|縦|landscape|portrait)?/i);
+  const m = text && text.match(/A([0-5])\s*(横|縦|landscape|portrait)?/i);
   if (m){
     const n = parseInt(m[1],10);
     const orient = (m[2]||"横").replace(/landscape/i,"横").replace(/portrait/i,"縦");
-    // 相对 A3 的倍数：A2=√2, A1=2, A0=2√2；A4=1/√2, A5=1/2
-    const delta = 3 - n; // 相对 A3 的阶数差
+    const delta = 3 - n; // 相对 A3 的差
     const factor = Math.pow(SQRT2, delta);
-    const baseW = PAPER_BASE.w * factor;
-    const baseH = PAPER_BASE.h * factor;
+    const baseW = PAPER_BASE.w * factor, baseH = PAPER_BASE.h * factor;
     const w = Math.round(orient==="横" ? baseW : baseH);
     const h = Math.round(orient==="横" ? baseH : baseW);
     return { name:`A${n}`, orient, w, h };
   }
-  // 2) 解析 2000x1400 / 2480×1754 px
-  const p = text.match(/(\d{3,5})\s*[x×]\s*(\d{3,5})\s*(?:px)?/i);
-  if (p){ return { name:"Custom", orient:"横", w:parseInt(p[1],10), h:parseInt(p[2],10) }; }
+  const p = text && text.match(/(\d{3,5})\s*[x×]\s*(\d{3,5})\s*(?:px)?/i);
+  if (p) return { name:"Custom", orient:"横", w:parseInt(p[1],10), h:parseInt(p[2],10) };
   return null;
 }
 function applyCanvasSizeBySpec(sizeStr, userText){
-  const p1 = sizeStr ? paperFromText(sizeStr) : null;
-  const p2 = paperFromText(userText);
-  const pick = p2 || p1;
-  if (pick){
-    SETTINGS.canvas.width = pick.w;
-    SETTINGS.canvas.height = pick.h;
-    return pick;
-  }
+  const p = paperFromText(userText) || paperFromText(sizeStr);
+  if (p){ SETTINGS.canvas.width = p.w; SETTINGS.canvas.height = p.h; return p; }
   return { name:PAPER_BASE.name, orient:PAPER_BASE.orient, w:SETTINGS.canvas.width, h:SETTINGS.canvas.height };
 }
 
 /* =========================
- * プリセット & 補正
+ * プリセット
  * ========================= */
 const PRESETS = [
-  // 体温/健康 → mandatory
-  {
+  { // 体温/健康
     match: /(体温|検温|測温|测温|temperature\s*check|health\s*check|注意身体|体調|体调|发烧|fever)/i,
     spec: {
       jp: { title: "体温測定", note: "体調に変化があれば すぐに報告してください" },
@@ -155,8 +137,7 @@ const PRESETS = [
       category: "mandatory", border: "stripes", size: "A3横", icon: "thermometer"
     }
   },
-  // 非常口 → safe
-  {
+  { // 非常口
     match: /(非常口|emergency\s*exit|避難口)/i,
     spec: {
       jp: { title: "非常口", subtitle: "前に物を置かない" },
@@ -165,8 +146,7 @@ const PRESETS = [
       category: "safe", border: "solid", size: "A3横", icon: "exit"
     }
   },
-  // 衝突 → warning
-  {
+  { // 衝突
     match: /(衝突事故|衝突|冲突|collision|接触事故|ぶつかり)/i,
     spec: {
       jp: { title: "衝突注意" },
@@ -175,8 +155,7 @@ const PRESETS = [
       category: "warning", border: "stripes", size: "A3横", icon: "collision"
     }
   },
-  // 仮置き → prohibition
-  {
+  { // 仮置き
     match: /(仮置き|临时放置|temporary\s*placement)/i,
     spec: {
       jp: { title: "仮置き禁止", subtitle: "通路・ラインを確保" },
@@ -185,8 +164,7 @@ const PRESETS = [
       category: "prohibition", border: "stripes", size: "A3横", icon: "no-box"
     }
   },
-  // 安全第一 → warning
-  {
+  { // 安全第一
     match: /(安全(第一)?|safety( first)?)/i,
     spec: {
       jp: { title: "安全第一", subtitle: "指差呼称・周囲確認" },
@@ -196,25 +174,25 @@ const PRESETS = [
     }
   }
 ];
-
-function matchPreset(userText){ for (const p of PRESETS) if (p.match.test(userText)) return structuredClone(p.spec); return null; }
-function mergeWithPreset(llmSpec, preset){
-  if (!preset) return llmSpec;
-  const merged = structuredClone(llmSpec || {});
-  merged.jp = { ...(llmSpec?.jp || {}), ...(preset.jp || {}) };
-  merged.en = { ...(llmSpec?.en || {}), ...(preset.en || {}) };
-  merged.zh = { ...(llmSpec?.zh || {}), ...(preset.zh || {}) };
-  if (preset.category) merged.category = preset.category;
-  if (preset.border)   merged.border   = preset.border;
-  if (preset.size)     merged.size     = preset.size;
-  if (preset.icon)     merged.icon     = preset.icon;
-  return merged;
+function matchPreset(t){ for (const p of PRESETS) if (p.match.test(t)) return structuredClone(p.spec); return null; }
+function mergeWithPreset(a,b){
+  if(!b) return a;
+  const m = structuredClone(a||{});
+  m.jp = { ...(a?.jp||{}), ...(b.jp||{}) };
+  m.en = { ...(a?.en||{}), ...(b.en||{}) };
+  m.zh = { ...(a?.zh||{}), ...(b.zh||{}) };
+  if(b.category) m.category=b.category;
+  if(b.border)   m.border=b.border;
+  if(b.size)     m.size=b.size;
+  if(b.icon)     m.icon=b.icon;
+  return m;
 }
 
 /* =========================
- * テキスト計測/改行/自動フィット
+ * 文本工具
  * ========================= */
 function withFontSize(fontSpec, px){ return fontSpec.replace(/(?<=\s)(\d+(?:\.\d+)?)px(?=\s*['"]?)/, `${px}px`); }
+function getPx(fontSpec){ const m = fontSpec.match(/(\d+(?:\.\d+)?)px/); return m ? parseFloat(m[1]) : 32; }
 function canFitSingleLine(text, fontSpec, maxWidth){ ctx.font = fontSpec; return ctx.measureText(text).width <= maxWidth; }
 function fitSingleLine(text, baseFont, maxWidth, {minPx=28, maxPx=80, step=2}={}, scale=1){
   const available = maxWidth / Math.max(scale, 0.1);
@@ -239,8 +217,21 @@ function wrapLines(text, font, maxWidth){
   return lines;
 }
 
+/* ---- 关键改进：逐行精确测量包围盒 ---- */
+function measureLine(text, font){
+  ctx.font = font;
+  const m = ctx.measureText(text);
+  const px = getPx(font);
+  const ascent  = (m.actualBoundingBoxAscent  != null) ? m.actualBoundingBoxAscent  : px*0.80;
+  const descent = (m.actualBoundingBoxDescent != null) ? m.actualBoundingBoxDescent : px*0.20;
+  const left    = (m.actualBoundingBoxLeft    != null) ? m.actualBoundingBoxLeft    : px*0.08;
+  const right   = (m.actualBoundingBoxRight   != null) ? m.actualBoundingBoxRight   : Math.max(m.width, px*0.92);
+  const width   = Math.max(m.width, left + right);
+  return { ascent, descent, left, right, width };
+}
+
 /* =========================
- * 圆角矩形 & 斜纹（围绕内容）
+ * 圆角矩形 & 斜纹（环形）
  * ========================= */
 function roundRectPath(x,y,w,h,r=12){
   const p = new Path2D();
@@ -250,21 +241,21 @@ function roundRectPath(x,y,w,h,r=12){
   p.arcTo(x+w,y+h,x,y+h,rr);
   p.arcTo(x,y+h,x,y,rr);
   p.arcTo(x,y,x+w,y,rr);
-  p.closePath();
-  return p;
+  p.closePath(); return p;
 }
-function drawStripeRingAroundRect(ctx, w, h, color, innerRect){
+function drawStripeRingAroundRect(ctx, w, h, color, innerRect, radius){
   const stripeW = SETTINGS.ui.stripeWidth, gap = SETTINGS.ui.stripeGap, frame = SETTINGS.stripe.frame;
 
-  // 1) 先把“环形区域”裁剪出来（外框 - 内圆角矩形）
+  // 环形裁剪：外框 - 内面板（留出 ringGap）
+  const inset = SETTINGS.stripe.ringGap;
+  const inner = roundRectPath(innerRect.x - inset, innerRect.y - inset, innerRect.w + inset*2, innerRect.h + inset*2, Math.max(0, radius - 4));
+
   ctx.save();
   const outer = new Path2D();
   outer.addPath(roundRectPath(10,10,w-20,h-20,16));
-  const inner = roundRectPath(innerRect.x, innerRect.y, innerRect.w, innerRect.h, 18);
   outer.addPath(inner);
   ctx.clip(outer, "evenodd");
 
-  // 2) 绘制斜纹
   ctx.strokeStyle = color; ctx.lineWidth = stripeW;
   const diag = Math.sqrt(w*w + h*h);
   ctx.translate(w/2, h/2);
@@ -275,14 +266,14 @@ function drawStripeRingAroundRect(ctx, w, h, color, innerRect){
   }
   ctx.restore();
 
-  // 3) 外边框
+  // 外边框
   ctx.save(); ctx.lineWidth = frame; ctx.strokeStyle = color;
   ctx.stroke(roundRectPath(10,10,w-20,h-20,16));
   ctx.restore();
 }
 
 /* =========================
- * レイアウト（測定 + 面板矩形）
+ * レイアウト（返回精确包围盒参数）
  * ========================= */
 function layoutBlocks(spec){
   const W = SETTINGS.canvas.width, H = SETTINGS.canvas.height;
@@ -292,7 +283,7 @@ function layoutBlocks(spec){
   const blocks=[];
 
   function addBlock(lines, font, color, lh){ if(lines && lines.length) blocks.push({lines, font, color, lineHeight: Math.round(lh*scale)}); }
-  function scaleFont(fontSpec){ const m = fontSpec.match(/(\d+(?:\.\d+)?)px/); const px = m ? parseFloat(m[1]) : 32; return withFontSize(fontSpec, Math.round(px*scale)); }
+  function scaleFont(fontSpec){ const px=getPx(fontSpec); return withFontSize(fontSpec, Math.round(px*scale)); }
 
   const jp=spec.jp||{}, en=spec.en||{}, zh=spec.zh||{};
 
@@ -320,19 +311,27 @@ function layoutBlocks(spec){
   if (zh.subtitle) addBlock(wrapLines(zh.subtitle, scaleFont(SETTINGS.fonts.zhBody), maxWidth), scaleFont(SETTINGS.fonts.zhBody), "#222", SETTINGS.lineHeights.zhBody);
   if (zh.note)     addBlock(wrapLines(zh.note,     scaleFont(SETTINGS.fonts.zhBody), maxWidth), scaleFont(SETTINGS.fonts.zhBody), "#222", SETTINGS.lineHeights.zhBody);
 
-  // 计算块高与最大行宽
-  let totalH = 0, maxLineW = 0;
-  for(const b of blocks){
+  // 逐行测量，精确获取最宽与上下外延
+  let totalH = 0, maxLeft = 0, maxRight = 0, firstAscent = 0, lastDescent = 0;
+  blocks.forEach((b, bi) => {
     ctx.font = b.font;
-    for(const ln of b.lines){ maxLineW = Math.max(maxLineW, ctx.measureText(ln).width); }
-    totalH += b.lines.length*b.lineHeight + paraGap;
-  }
-  totalH -= paraGap; // 最后一个段落不加间距
-  return { blocks, totalH, maxLineW, maxWidth, scale, paraGap };
+    b.lines.forEach((ln, li) => {
+      const m = measureLine(ln, b.font);
+      maxLeft  = Math.max(maxLeft,  m.left);
+      maxRight = Math.max(maxRight, m.right);
+      if (bi === 0 && li === 0) firstAscent = m.ascent;
+      if (bi === blocks.length-1 && li === b.lines.length-1) lastDescent = m.descent;
+    });
+    totalH += b.lines.length * b.lineHeight;
+    if (bi !== blocks.length - 1) totalH += paraGap; // 只在段落之间加间距（修正）
+  });
+
+  const textWidth = maxLeft + maxRight; // 实际左右外延
+  return { blocks, totalH, textWidth, maxWidth, scale, paraGap, firstAscent, lastDescent };
 }
 
 /* =========================
- * 描画（顶部色带 → 斜纹环 → 白色面板 → 文本）
+ * 描画
  * ========================= */
 let lastSpec = null;
 
@@ -341,55 +340,73 @@ function drawPoster(spec){
   const W = SETTINGS.canvas.width, H = SETTINGS.canvas.height;
   canvas.width = W; canvas.height = H;
 
-  // 背景（纯白）
+  // 背景
   ctx.fillStyle = "#fff"; ctx.fillRect(0,0,W,H);
 
-  // 先排版，得到内容面板的矩形
+  // 排版参数
   const L = layoutBlocks(spec);
   const bandColor = SAFETY[spec.category]?.base || "#999";
 
-  // 顶部色带（先画，避免压住面板阴影）
+  // 顶部色带
   ctx.fillStyle = bandColor;
   ctx.fillRect(0,0,W,SETTINGS.bandHeight);
 
-  // 内容面板矩形（位于色带下方）
+  // 计算内容面板的精确矩形（考虑 ascent / descent / 斜体外延）
   const centerX = W/2;
-  const topY = (H + SETTINGS.bandHeight)/2 - L.totalH/2;
-  const innerW = Math.min(L.maxLineW + SETTINGS.stripe.ringPadding*2, W - 160);
-  const innerX = Math.max(30, centerX - innerW/2);
-  const innerY = Math.max(topY - SETTINGS.stripe.ringPadding, SETTINGS.bandHeight + 20);
-  const innerH = Math.min(L.totalH + SETTINGS.stripe.ringPadding*2, H - innerY - 30);
-  const panelRect = { x: innerX, y: innerY, w: innerW, h: innerH };
+  // 第一行基线位置
+  const firstBaselineY = (H + SETTINGS.bandHeight)/2 - L.totalH/2;
+  const contentTop    = firstBaselineY - L.firstAscent;
+  const contentBottom = firstBaselineY + L.totalH + L.lastDescent;
+  const contentHeight = contentBottom - contentTop;
 
-  // 斜纹围绕（先画斜纹，再画面板覆盖，保证斜纹不进入面板）
+  const padX = SETTINGS.panel.paddingX;
+  const padY = SETTINGS.panel.paddingY;
+
+  let panelW = Math.min(L.textWidth + padX*2, W - SETTINGS.panel.marginX*2);
+  let panelH = Math.min(contentHeight + padY*2, H - (SETTINGS.bandHeight + SETTINGS.panel.marginY) - SETTINGS.panel.marginY);
+
+  let panelX = Math.max(SETTINGS.panel.marginX, centerX - panelW/2);
+  let panelY = Math.max(SETTINGS.bandHeight + SETTINGS.panel.marginY, contentTop - padY);
+
+  // 若底部会溢出，则整体上移
+  if (panelY + panelH > H - SETTINGS.panel.marginY) {
+    panelY = H - SETTINGS.panel.marginY - panelH;
+  }
+
+  const panelPath = roundRectPath(panelX, panelY, panelW, panelH, SETTINGS.panel.radius);
+
+  // 斜纹围绕（用面板矩形做内环）
   if (spec.border === "stripes") {
-    drawStripeRingAroundRect(ctx, W, H, bandColor, panelRect);
+    drawStripeRingAroundRect(ctx, W, H, bandColor, {x:panelX, y:panelY, w:panelW, h:panelH}, SETTINGS.panel.radius);
   } else if (spec.border === "solid") {
     ctx.strokeStyle = bandColor; ctx.lineWidth = SETTINGS.solidBorderWidth;
     ctx.stroke(roundRectPath(10,10,W-20,H-20,16));
   }
 
-  // 白色内容面板
+  // 白色面板（有阴影）
   ctx.save();
+  if (SETTINGS.panel.shadow){
+    ctx.shadowColor = "rgba(0,0,0,.06)";
+    ctx.shadowBlur = 12;
+  }
   ctx.fillStyle = "#fff";
-  ctx.shadowColor = "rgba(0,0,0,.06)";
-  ctx.shadowBlur = 12;
-  ctx.fill(roundRectPath(panelRect.x, panelRect.y, panelRect.w, panelRect.h, 18));
+  ctx.fill(panelPath);
   ctx.restore();
 
-  // 文本（中央）
+  // 文本（按真实基线绘制；段落间距只在段落间）
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
-  let y = (H + SETTINGS.bandHeight)/2 - L.totalH/2;
-  for(const b of L.blocks){
+  let y = firstBaselineY;
+  const cx = centerX;
+  L.blocks.forEach((b, bi) => {
     ctx.font = b.font; ctx.fillStyle = b.color;
-    for(const ln of b.lines){ ctx.fillText(ln, centerX, y); y += b.lineHeight; }
-    y += L.paraGap;
-  }
+    b.lines.forEach(ln => { ctx.fillText(ln, cx, y); y += b.lineHeight; });
+    if (bi !== L.blocks.length - 1) y += L.paraGap; // 只在段落间加
+  });
 }
 
 /* =========================
- * 日本語の自然な返信
+ * 自然な日本語返信
  * ========================= */
 function formatBotReply(spec, sizeInfo){
   const catMap = { warning:"黄色の警告", prohibition:"赤の禁止", mandatory:"青の指示", safe:"緑の安全", fire:"防火", neutral:"中立" };
@@ -399,36 +416,30 @@ function formatBotReply(spec, sizeInfo){
   if(en.title || en.subtitle) bits.push(`英文：${[en.title,en.subtitle].filter(Boolean).join(" / ")}`);
   if(zh.title || zh.subtitle || zh.note) bits.push(`中国語：${[zh.title,zh.subtitle,zh.note].filter(Boolean).join(" / ")}`);
   const sizeTxt = sizeInfo ? `${sizeInfo.name}・${sizeInfo.orient}（${sizeInfo.w}×${sizeInfo.h}px）` : `${SETTINGS.canvas.width}×${SETTINGS.canvas.height}px`;
-  const style = `スタイルは${catMap[spec.category]||spec.category}、枠は「${spec.border==="stripes"?"斜線":"実線"}」。用紙サイズは ${sizeTxt} に合わせました。`;
-  return `了解しました。内容に基づいてポスターを整えました。\n- ${bits.join("\n- ")}\n- ${style}\n右上のギアからフォント倍率・行間・斜線の太さ/間隔を微調整できます。`;
+  return `了解しました。内容に合わせてレイアウトを最適化しました。\n- ${bits.join("\n- ")}\n- スタイル：${catMap[spec.category]||spec.category}、枠は「${spec.border==="stripes"?"斜線":"実線"}」\n- 用紙サイズ：${sizeTxt}\n右上のギアでフォント倍率・行間・斜線の太さ/間隔を調整できます。`;
 }
 
 /* =========================
- * JSON 解析 & 生成（プリセット/補正/尺寸应用）
+ * 生成フロー
  * ========================= */
-function parseJSONLoose(text){ if(!text) return null; const m=text.match(/```(?:json)?\s*([\s\S]*?)```/i); const body=m?m[1]:text; try{return JSON.parse(body);}catch{return null;} }
+function parseJSONLoose(t){ if(!t) return null; const m=t.match(/```(?:json)?\s*([\s\S]*?)```/i); const body=m?m[1]:t; try{return JSON.parse(body);}catch{return null;} }
 
 async function generatePoster(userText){
-  // 不显示用户消息
   let data;
-
   if (engine) {
     const reply = await engine.chat.completions.create({
       messages: [{ role:"system", content: SYSTEM_PROMPT }, { role:"user", content: userText }],
       max_tokens: 500
     });
-    const raw = reply.choices?.[0]?.message?.content || "";
-    data = parseJSONLoose(raw);
+    data = parseJSONLoose(reply.choices?.[0]?.message?.content || "");
   }
 
-  // 先根据自然语言/LLM的 size 应用画布尺寸
+  // 尺寸先应用
   const sizeInfo = applyCanvasSizeBySpec(data?.size, userText);
 
-  // 预设
-  const preset = matchPreset(userText);
-  if (preset) data = mergeWithPreset(data, preset);
+  // 预设与补正
+  const preset = matchPreset(userText); if (preset) data = mergeWithPreset(data, preset);
 
-  // 兜底补正
   if (/(体温|検温|測温|测温|temperature\s*check|health\s*check|注意身体|体調|体调|发烧|fever)/i.test(userText)) {
     data = data || {}; data.category="mandatory"; data.border = data.border || "stripes";
   }
@@ -447,7 +458,6 @@ async function generatePoster(userText){
     data.jp = data.jp || {}; data.jp.title = data.jp.title || "仮置き禁止"; data.jp.subtitle = data.jp.subtitle || "通路・ラインを確保";
   }
 
-  // 回退
   if (!data) {
     data = { jp:{title:"通行注意", subtitle:"走行車両あり"}, en:{subtitle:"Watch for vehicles"}, zh:{note:"行人应小心行驶车辆"}, category:"warning", border:"stripes", size:"A3横", icon:"forklift" };
   }
@@ -464,12 +474,11 @@ async function generatePoster(userText){
 }
 
 /* =========================
- * 折叠式控制面板（大齿轮）
+ * 控制面板（可折叠）
  * ========================= */
 function createControlPanel(){
   const btn = document.createElement("button");
-  btn.textContent = "⚙︎";
-  btn.title = "設定";
+  btn.textContent = "⚙︎"; btn.title = "設定";
   btn.style.cssText = `
     position: fixed; top: 16px; right: 16px; z-index: 1000;
     width: 56px; height: 56px; border-radius: 28px; border: none;
@@ -483,7 +492,7 @@ function createControlPanel(){
   const panel = document.createElement("div");
   panel.style.cssText = `
     position: fixed; top: 84px; right: 16px; z-index: 999;
-    width: 260px; padding: 12px; border-radius: 12px;
+    width: 270px; padding: 12px; border-radius: 12px;
     background: rgba(255,255,255,.98); border: 1px solid #e6e8eb;
     font: 13px/1.4 system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif;
     box-shadow: 0 10px 24px rgba(0,0,0,.12); display: none;
@@ -505,50 +514,56 @@ function createControlPanel(){
 
     <label>斜線の間隔：<span id="v-sg">${SETTINGS.ui.stripeGap}</span></label>
     <input id="ui-stripeG" type="range" min="10" max="60" step="2" value="${SETTINGS.ui.stripeGap}" style="width:100%;margin:6px 0 4px;">
+
+    <label>面板左右余白(px)：<span id="v-padx">${SETTINGS.panel.paddingX}</span></label>
+    <input id="ui-padx" type="range" min="12" max="100" step="2" value="${SETTINGS.panel.paddingX}" style="width:100%;margin:6px 0 10px;">
+
+    <label>面板上下余白(px)：<span id="v-pady">${SETTINGS.panel.paddingY}</span></label>
+    <input id="ui-pady" type="range" min="8" max="100" step="2" value="${SETTINGS.panel.paddingY}" style="width:100%;margin:6px 0 10px;">
   `;
   document.body.appendChild(panel);
 
   btn.onclick = () => { panel.style.display = panel.style.display === "none" ? "block" : "none"; };
   panel.querySelector("#ui-close").onclick = () => { panel.style.display = "none"; };
 
-  const vFont = panel.querySelector("#v-font"), vPara = panel.querySelector("#v-para"),
-        vSW = panel.querySelector("#v-sw"), vSG = panel.querySelector("#v-sg");
-  panel.querySelector("#ui-font").oninput    = e => { SETTINGS.ui.fontScale        = parseFloat(e.target.value); vFont.textContent = SETTINGS.ui.fontScale.toFixed(2); redrawLast(); };
-  panel.querySelector("#ui-para").oninput    = e => { SETTINGS.ui.paragraphSpacing = parseInt(e.target.value,10); vPara.textContent = SETTINGS.ui.paragraphSpacing; redrawLast(); };
-  panel.querySelector("#ui-stripeW").oninput = e => { SETTINGS.ui.stripeWidth      = parseInt(e.target.value,10); vSW.textContent   = SETTINGS.ui.stripeWidth;      redrawLast(); };
-  panel.querySelector("#ui-stripeG").oninput = e => { SETTINGS.ui.stripeGap        = parseInt(e.target.value,10); vSG.textContent   = SETTINGS.ui.stripeGap;        redrawLast(); };
+  const $ = s => panel.querySelector(s);
+  const update = () => redrawLast();
+
+  $("#ui-font").oninput    = e => { SETTINGS.ui.fontScale        = parseFloat(e.target.value); $("#v-font").textContent = SETTINGS.ui.fontScale.toFixed(2); update(); };
+  $("#ui-para").oninput    = e => { SETTINGS.ui.paragraphSpacing = parseInt(e.target.value,10); $("#v-para").textContent = SETTINGS.ui.paragraphSpacing;    update(); };
+  $("#ui-stripeW").oninput = e => { SETTINGS.ui.stripeWidth      = parseInt(e.target.value,10); $("#v-sw").textContent   = SETTINGS.ui.stripeWidth;         update(); };
+  $("#ui-stripeG").oninput = e => { SETTINGS.ui.stripeGap        = parseInt(e.target.value,10); $("#v-sg").textContent   = SETTINGS.ui.stripeGap;           update(); };
+  $("#ui-padx").oninput    = e => { SETTINGS.panel.paddingX      = parseInt(e.target.value,10); $("#v-padx").textContent = SETTINGS.panel.paddingX;         update(); };
+  $("#ui-pady").oninput    = e => { SETTINGS.panel.paddingY      = parseInt(e.target.value,10); $("#v-pady").textContent = SETTINGS.panel.paddingY;         update(); };
 }
 function redrawLast(){ if(lastSpec) drawPoster(lastSpec); }
 createControlPanel();
 
 /* =========================
- * 送信動作（Shift+Enter = 改行 / Enter または Ctrl/⌘+Enter = 送信）
- * IME 変換中は送信しない
+ * 输入/下载/键盘
  * ========================= */
 let composing = false;
 promptEl.addEventListener("compositionstart", () => composing = true);
 promptEl.addEventListener("compositionend",   () => composing = false);
 promptEl.addEventListener("keydown", e => {
   if (e.key === "Enter") {
-    if (e.isComposing || composing) return; // IME中
-    if (e.shiftKey) return;                 // Shift+Enter で改行
-    e.preventDefault();
-    sendBtn.click();                        // Enter で送信
+    if (e.isComposing || composing) return;
+    if (e.shiftKey) return;               // Shift+Enter 换行
+    e.preventDefault(); sendBtn.click();  // Enter 送信
   }
 });
 sendBtn.onclick = () => {
   const t = promptEl.value.trim();
   if (t) { generatePoster(t); }
-  promptEl.value = "";                      // 送信後クリア
+  promptEl.value = "";
 };
 dlBtn.onclick = () => {
   const url = canvas.toDataURL("image/png");
-  const a = document.createElement("a");
-  a.href = url; a.download = "poster.png"; a.click();
+  const a = document.createElement("a"); a.href = url; a.download = "poster.png"; a.click();
 };
 
 /* =========================
- * 初期サンプル
+ * 初期表示
  * ========================= */
 drawPoster({
   jp: { title: "安全第一", subtitle: "指差呼称・周囲確認・事故ゼロへ" },
