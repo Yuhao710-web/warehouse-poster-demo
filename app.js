@@ -240,22 +240,28 @@ function applyThemeNaturalLanguage(text, changes){
 function applyBackgroundColorNaturalLanguage(text, changes){
   let changed = false;
 
-  // 斜纹空隙（“白色部分”）
-  let mRing = text.match(/(白色部分|白色区域|空隙|缝隙|間隙|斜纹间隙|斜線間隙|斜線の隙間|斜纹的空白|斜線の白地|白地|白い部分|隙間|すき間|スキマ|ストライプの隙間|縞の隙間|縞のすき間|縞の間)[^#A-Za-z0-9一-龥ぁ-んァ-ンー]*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i);
+  // —— 斜纹空隙（“白地/隙間”）——（更宽松：允许“变成/にして”等介词）
+  let mRing = text.match(
+    /(白色部分|白色区域|空隙|缝隙|間隙|斜纹间隙|斜線間隙|斜線の隙間|斜纹的空白|斜線の白地|白地|白い部分|隙間|すき間|スキマ|ストライプの隙間|縞の隙間|縞のすき間|縞の間).*?(?:改成|改为|变成|に|にして|に変更|にする|で)?\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i
+  );
   if (mRing){
     const col = resolveColor(mRing[2]);
     if (col){ SETTINGS.colors.ringBg = col; changed = true; changes && changes.push(`斜線の隙間色：${col}`); }
   }
 
-  // 整张背景
-  let mBg = text.match(/(背景|背景色|バックグラウンド|background|canvas)[^#A-Za-z0-9一-龥ぁ-んァ-ンー]*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i);
+  // —— 整张背景 ——（更宽松）
+  let mBg = text.match(
+    /(背景|背景色|バックグラウンド|background|canvas).*?(?:改成|改为|变成|に|にして|に変更|にする|で)?\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i
+  );
   if (mBg){
     const col = resolveColor(mBg[2]);
     if (col){ SETTINGS.colors.canvasBg = col; changed = true; changes && changes.push(`背景色：${col}`); }
   }
 
-  // 面板背景
-  let mPanel = text.match(/(面板|面盤|パネル|內側|内側|内容面|面の背景|panel)[^#A-Za-z0-9一-龥ぁ-んァ-ンー]*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i);
+  // —— 面板背景 ——（更宽松）
+  let mPanel = text.match(
+    /(面板|面盤|パネル|內側|内側|内容面|面の背景|panel).*?(?:改成|改为|变成|に|にして|に変更|にする|で)?\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i
+  );
   if (mPanel){
     const col = resolveColor(mPanel[2]);
     if (col){ SETTINGS.colors.panelBg = col; changed = true; changes && changes.push(`パネル背景：${col}`); }
@@ -685,7 +691,7 @@ function applyStyleEdits(text, spec, changes){
   // 主题配色（仅当前海报）
   const themeChanged = applyThemeNaturalLanguage(text, changes);
 
-  // 背景/面板/斜纹空隙 颜色
+  // 背景/面板/斜纹空隙 颜色（更宽松正则）
   const bgColorChanged = applyBackgroundColorNaturalLanguage(text, changes);
 
   // 枠线：想要枠线（未指定类型）→ 默认实线
@@ -703,8 +709,7 @@ function applyStyleEdits(text, spec, changes){
     changed = true;
   }
 
-  // ✅ 仅表达“想要斜线”的宽松识别（适用于所有海报）
-  // 例：希望有斜线 / 斜線にして / ストライプ希望 / 要斜线
+  // 仅表达“想要斜线”的宽松识别（适用于所有海报）
   if (/(斜线|斜線|斜紋|ストライプ)/i.test(text) && !/(不要|去掉|去除|無し|いらない)/i.test(text)) {
     if (spec.border !== "stripes") {
       spec.border = "stripes";
@@ -718,10 +723,10 @@ function applyStyleEdits(text, spec, changes){
   if (/(边框|框|枠).*(斜纹|斜線|ストライプ)/i.test(text)){ spec.border = "stripes"; changes.push("枠：斜線"); changed = true; }
   if (/(边框|框|枠).*(实线|實線|実線|ソリッド)/i.test(text)){ spec.border = "solid"; changes.push("枠：実線"); changed = true; }
 
-  // 枠（斜線/実線）颜色覆盖
+  // —— 枠（斜線/実線）颜色覆盖 ——（更宽松：支持“变成/にして”）
   let bcMatch =
-    text.match(/(斜纹|斜線|ストライプ|枠線|枠).*(?:颜色|色|カラー|color)\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i) ||
-    text.match(/(斜纹|斜線|ストライプ|枠線|枠).*(?:を|は|に|にして|に変更|にする|で|改成|改为)\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i);
+    text.match(/(斜纹|斜線|ストライプ|枠線|枠).*?(?:颜色|色|カラー|color).*?(?:改成|改为|变成|にして|に変更|にする|で|は|を|に)?\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i) ||
+    text.match(/(斜纹|斜線|ストライプ|枠線|枠).*?(?:を|は|に|にして|に変更|にする|で|改成|改为|变成)\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i);
 
   if (bcMatch){
     const col = resolveColor(bcMatch[2]);
@@ -794,7 +799,7 @@ function isBorderAddRequest(text){
 
 function applyEditsNaturalLanguage(userText){
   if (!lastSpec) return null;
-  const spec = deepClone(lastSpec);
+  const spec = JSON.parse(JSON.stringify(lastSpec));
   const changes = [];
   const textChanged  = applyTextEdits(userText, spec, changes);
   const styleChanged = applyStyleEdits(userText, spec, changes);
