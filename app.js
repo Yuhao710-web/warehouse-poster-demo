@@ -149,6 +149,7 @@ function cleanColorWord(s){
     /(にして|に変更|にする|にしたい(?:です)?|したい(?:です)?|にしてください|してください|でお願いします|ください|下さい|お願いします?|お願い|です|だ)$/i,
     ""
   );
+  // 去掉尾部助词（は/を/に/へ/で…）和标点空白
   s = s.replace(/[にへでをはがもやとか、。．，,！!？?\s~〜]+$/g, "");
   return s.trim();
 }
@@ -303,27 +304,27 @@ function applyThemeNaturalLanguage(text, changes){
 function applyBackgroundColorNaturalLanguage(text, changes){
   let changed = false;
 
-  // —— 斜纹空隙（“白地/隙間”）——（允许“を/变成/にして”等）
+  // —— 斜纹空隙（“白地/隙間”）——（允许“を/は/にして”等）
   let mRing = text.match(
-    /(白色部分|白色区域|空隙|缝隙|間隙|斜纹间隙|斜線間隙|斜線の隙間|斜纹的空白|斜線の白地|白地|白い部分|隙間|すき間|スキマ|ストライプの隙間|縞の隙間|縞のすき間|縞の間).*?(?:改成|改为|变成|に|にして|に変更|にする|で|を)?\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i
+    /(白色部分|白色区域|空隙|缝隙|間隙|斜纹间隙|斜線間隙|斜線の隙間|斜纹的空白|斜線の白地|白地|白い部分|隙間|すき間|スキマ|ストライプの隙間|縞の隙間|縞のすき間|縞の間).*?(?:改成|改为|变成|に|にして|に変更|にする|で|を|は)?\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i
   );
   if (mRing){
     const col = resolveColor(mRing[2]);
     if (col){ SETTINGS.colors.ringBg = col; changed = true; changes && changes.push(`斜線の隙間色：${col}`); }
   }
 
-  // —— 整张背景 ——（允许 を）
+  // —— 整张背景 ——（允许 を/は）
   let mBg = text.match(
-    /(背景|背景色|バックグラウンド|background|canvas).*?(?:改成|改为|变成|に|にして|に変更|にする|で|を)?\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i
+    /(背景|背景色|バックグラウンド|background|canvas).*?(?:改成|改为|变成|に|にして|に変更|にする|で|を|は)?\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i
   );
   if (mBg){
     const col = resolveColor(mBg[2]);
     if (col){ SETTINGS.colors.canvasBg = col; changed = true; changes && changes.push(`背景色：${col}`); }
   }
 
-  // —— 面板背景 ——（允许 を）
+  // —— 面板背景 ——（允许 を/は）
   let mPanel = text.match(
-    /(面板|面盤|パネル|內側|内側|内容面|面の背景|panel).*?(?:改成|改为|变成|に|にして|に変更|にする|で|を)?\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i
+    /(面板|面盤|パネル|內側|内側|内容面|面の背景|panel).*?(?:改成|改为|变成|に|にして|に変更|にする|で|を|は)?\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i
   );
   if (mPanel){
     const col = resolveColor(mPanel[2]);
@@ -633,7 +634,7 @@ function drawPoster(spec){
 
   const panelPath = roundRectPath(panelX, panelY, panelW, panelH, SETTINGS.panel.radius);
 
-  // 斜纹/实线边框（颜色用 borderColor）
+  // 枠（斜線/実線）
   if (spec.border === "stripes") {
     drawStripeRingAroundRect(ctx, W, H, borderColor, {x:panelX, y:panelY, w:panelW, h:panelH}, SETTINGS.panel.radius);
   } else if (spec.border === "solid") {
@@ -653,7 +654,7 @@ function drawPoster(spec){
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
   let y = firstBaselineY;
-  const cx = centerX;
+  const cx = W/2;
   L.blocks.forEach((b, bi) => {
     ctx.font = b.font; ctx.fillStyle = b.color;
     b.lines.forEach(ln => { ctx.fillText(ln, cx, y); y += b.lineHeight; });
@@ -693,7 +694,7 @@ function applyTextEdits(text, spec, changes){
 
   for (const field of fieldRegs){
     let rgSetCN = new RegExp("(?:把)?(?:(日文|日語|日本語|JP|英文|英語|EN|中文|中国語|ZH))?.*?"+field.cn.source+".*?(改成|改为|换成|设置为|设为)", "i");
-    let rgSetJP = new RegExp("(?:(日本語|英語|中国語|JP|EN|ZH))?.*?"+field.jp.source+".*?(?:を)?\\s*[「『“\"\']([^「『“\"']+)[」』”\"\']\\s*に(?:する|変更|変える|して)", "i");
+    let rgSetJP = new RegExp("(?:(日本語|英語|中国語|JP|EN|ZH))?.*?"+field.jp.source+".*?(?:を)?\\s*[「『“\"\']([^「『“\"']+)[」『”\"\']\\s*に(?:する|変更|変える|して)", "i");
 
     const q = quoted(text);
     if (rgSetJP.test(text) && q){
@@ -754,7 +755,7 @@ function applyStyleEdits(text, spec, changes){
   // 主题配色（仅当前海报）
   const themeChanged = applyThemeNaturalLanguage(text, changes);
 
-  // 背景/面板/斜纹空隙 颜色（更宽松正则，含“を”）
+  // 背景/面板/斜纹空隙 颜色（更宽松正则，含“を/は”）
   const bgColorChanged = applyBackgroundColorNaturalLanguage(text, changes);
 
   // 枠线：想要枠线（未指定类型）→ 默认实线
@@ -772,7 +773,7 @@ function applyStyleEdits(text, spec, changes){
     changed = true;
   }
 
-  // 仅表达“想要斜线”的宽松识别（适用于所有海报）
+  // 只要说到“斜線/ストライプ”且不是否定 → 切换到斜线枠
   if (/(斜线|斜線|斜紋|ストライプ)/i.test(text) && !/(不要|去掉|去除|無し|いらない)/i.test(text)) {
     if (spec.border !== "stripes") {
       spec.border = "stripes";
@@ -786,7 +787,7 @@ function applyStyleEdits(text, spec, changes){
   if (/(边框|框|枠).*(斜纹|斜線|ストライプ)/i.test(text)){ spec.border = "stripes"; changes.push("枠：斜線"); changed = true; }
   if (/(边框|框|枠).*(实线|實線|実線|ソリッド)/i.test(text)){ spec.border = "solid"; changes.push("枠：実線"); changed = true; }
 
-  // —— 枠（斜線/実線）颜色覆盖 ——（支持“变成/にして/を”）
+  // —— 枠（斜線/実線）颜色覆盖 ——（允许「は」）
   let bcMatch =
     text.match(/(斜纹|斜線|ストライプ|枠線|枠).*?(?:颜色|色|カラー|color).*?(?:改成|改为|变成|にして|に変更|にする|で|は|を|に)?\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i) ||
     text.match(/(斜纹|斜線|ストライプ|枠線|枠).*?(?:を|は|に|にして|に変更|にする|で|改成|改为|变成)\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i);
@@ -1143,7 +1144,7 @@ function redrawLast(){ if(lastSpec) drawPoster(lastSpec); }
 createControlPanel();
 
 /* =========================
- * 指令履歴（增强版）：搜索/筛选/固定/删除/复制/持久化/会话过滤
+ * 指令履历（增强版）：搜索/筛选/固定/删除/复制/持久化/会话过滤
  * ========================= */
 const HISTORY_KEY = "poster_history_v1";
 const MAX_HISTORY = 200;
@@ -1272,6 +1273,37 @@ function createHistoryPanelEnhanced(){
     <div id="hist-list" style="overflow:auto; max-height: calc(80vh - 180px);"></div>
   `;
   document.body.appendChild(wrap);
+
+  /* —— 追加：根据标题/页头动态下移历史按钮，避免遮挡 —— */
+  function computeHistoryOffsets(){
+    // 优先找 header，其次常见的标题选择器
+    const header = document.querySelector("header, .header, .app-header, #header, [role='banner']");
+    const title  = document.querySelector(".title, .app-title, h1");
+
+    // 基础安全距离（找不到标题也会下移）
+    let safeTop = 72; // 需要更低就调大，例如 96/112
+
+    if (header) {
+      const r = header.getBoundingClientRect();
+      safeTop = Math.max(safeTop, r.bottom + 12);
+    } else if (title) {
+      const r = title.getBoundingClientRect();
+      safeTop = Math.max(safeTop, r.bottom + 12);
+    }
+
+    // 设置按钮与面板位置（面板在按钮下方偏移 68px）
+    btn.style.top  = safeTop + "px";
+    wrap.style.top = (safeTop + 68) + "px";
+  }
+  computeHistoryOffsets();
+  window.addEventListener("resize", computeHistoryOffsets);
+  setTimeout(computeHistoryOffsets, 0);
+  const hdr = document.querySelector("header, .header, .app-header, #header, [role='banner']");
+  if (hdr && "ResizeObserver" in window) {
+    const ro = new ResizeObserver(() => computeHistoryOffsets());
+    ro.observe(hdr);
+  }
+  /* —— 动态下移逻辑结束 —— */
 
   const listEl = wrap.querySelector("#hist-list");
   const qEl    = wrap.querySelector("#hist-q");
