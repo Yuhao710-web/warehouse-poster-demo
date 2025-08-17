@@ -140,44 +140,107 @@ function applyCanvasSizeBySpec(sizeStr, userText){
 }
 
 /* =========================
- * 颜色解析 & 类别别名
+ * 颜色词清洗 + 映射 + 解析（#HEX/RGB/HSL/命名）
  * ========================= */
-// 清洗颜色词尾（黄色に/黒で/灰色です 等）
 function cleanColorWord(s){
   if (!s) return s;
   s = s.trim();
-  s = s.replace(/(にして|に変更|にする|でお願いします|ください|下さい|お願いします|お願い|です|だ)$/i, "");
+  s = s.replace(
+    /(にして|に変更|にする|にしたい(?:です)?|したい(?:です)?|にしてください|してください|でお願いします|ください|下さい|お願いします?|お願い|です|だ)$/i,
+    ""
+  );
   s = s.replace(/[にへでをはがもやとか、。．，,！!？?\s~〜]+$/g, "");
   return s.trim();
 }
 
 const COLOR_MAP = {
   // EN
-  "red":"#C62828","yellow":"#F9A900","blue":"#005387","green":"#237F52","black":"#000000","white":"#ffffff","gray":"#9e9e9e","grey":"#9e9e9e",
+  red:"#C62828", yellow:"#F9A900", blue:"#005387", green:"#237F52",
+  black:"#000000", white:"#ffffff", gray:"#9e9e9e", grey:"#9e9e9e",
+  orange:"#FFA500", purple:"#800080", pink:"#FFC0CB", brown:"#8B4513",
+  cyan:"#00BCD4", magenta:"#FF00FF", navy:"#000080", teal:"#008080",
+  maroon:"#800000", lime:"#00FF00", gold:"#FFD700", silver:"#C0C0C0",
+  beige:"#F5F5DC", indigo:"#4B0082", violet:"#8A2BE2", skyblue:"#87CEEB",
+
   // 简/繁中文
-  "红":"#C62828","红色":"#C62828","黄色":"#F9A900","黄":"#F9A900","蓝":"#005387","蓝色":"#005387","绿":"#237F52","绿色":"#237F52",
-  "黑":"#000000","黑色":"#000000","白":"#ffffff","白色":"#ffffff","灰":"#9e9e9e","灰色":"#9e9e9e",
+  "红":"#C62828","红色":"#C62828","赤色":"#C62828","酒红":"#800000","棕色":"#8B4513",
+  "黄":"#F9A900","黄色":"#F9A900","橙":"#FFA500","橙色":"#FFA500","金色":"#FFD700",
+  "蓝":"#005387","蓝色":"#005387","天蓝":"#87CEEB","海军蓝":"#000080",
+  "绿":"#237F52","绿色":"#237F52","青色":"#008080","青绿":"#008080","青綠":"#008080",
+  "紫":"#800080","紫色":"#800080","紫罗兰":"#8A2BE2",
+  "粉":"#FFC0CB","粉色":"#FFC0CB",
+  "黑":"#000000","黑色":"#000000","白":"#ffffff","白色":"#ffffff",
+  "灰":"#9e9e9e","灰色":"#9e9e9e","银色":"#C0C0C0","銀色":"#C0C0C0",
+  "米色":"#F5F5DC",
+
   // 日文
-  "赤":"#C62828","赤色":"#C62828","レッド":"#C62828",
-  "黄":"#F9A900","黄色":"#F9A900","イエロー":"#F9A900",
-  "青":"#005387","青色":"#005387","ブルー":"#005387",
-  "緑":"#237F52","緑色":"#237F52","グリーン":"#237F52",
+  "赤":"#C62828","レッド":"#C62828","エンジ":"#800000",
+  "黄":"#F9A900","黄色":"#F9A900","イエロー":"#F9A900","ゴールド":"#FFD700",
+  "橙色":"#FFA500","オレンジ":"#FFA500",
+  "青":"#005387","青色":"#005387","ブルー":"#005387","水色":"#87CEEB",
+  "紺":"#000080","ネイビー":"#000080",
+  "緑":"#237F52","緑色":"#237F52","グリーン":"#237F52","ティール":"#008080","青緑":"#008080",
+  "紫":"#800080","パープル":"#800080","バイオレット":"#8A2BE2","インディゴ":"#4B0082",
+  "ピンク":"#FFC0CB","マゼンタ":"#FF00FF",
+  "茶色":"#8B4513","ブラウン":"#8B4513",
   "黒":"#000000","黒色":"#000000","ブラック":"#000000",
   "白":"#ffffff","白色":"#ffffff","ホワイト":"#ffffff",
-  "灰色":"#9e9e9e","グレー":"#9e9e9e",
+  "灰色":"#9e9e9e","グレー":"#9e9e9e","シルバー":"#C0C0C0","ベージュ":"#F5F5DC",
+
   // 品牌示例
-  "公司蓝":"#0a84ff","企业蓝":"#0a84ff","品牌蓝":"#0a84ff","会社ブルー":"#0a84ff","企業ブルー":"#0a84ff","コーポレートカラー":"#0a84ff","ブランドブルー":"#0a84ff"
+  "公司蓝":"#0a84ff","企业蓝":"#0a84ff","品牌蓝":"#0a84ff",
+  "会社ブルー":"#0a84ff","企業ブルー":"#0a84ff","コーポレートカラー":"#0a84ff","ブランドブルー":"#0a84ff"
 };
 
 function resolveColor(word){
   if (!word) return null;
   word = cleanColorWord(word);
-  const hex = word.match(/#([0-9a-f]{3,8})/i);
-  if (hex) return "#" + hex[1];
+
+  // #HEX（3/4/6/8位）
+  const hex = word.match(/#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})/i);
+  if (hex) return "#" + hex[1].toLowerCase();
+
+  // rgb/rgba( R, G, B [,A] )
+  let m = word.match(/rgba?\(\s*([0-9]{1,3})\s*,\s*([0-9]{1,3})\s*,\s*([0-9]{1,3})(?:\s*,\s*(0|0?\.\d+|1))?\s*\)/i);
+  if (m){
+    const r = Math.max(0, Math.min(255, parseInt(m[1],10)));
+    const g = Math.max(0, Math.min(255, parseInt(m[2],10)));
+    const b = Math.max(0, Math.min(255, parseInt(m[3],10)));
+    const toHex = n => n.toString(16).padStart(2,"0");
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  }
+
+  // hsl/hsla( H, S%, L% [,A] )
+  m = word.match(/hsla?\(\s*([0-9]{1,3})\s*,\s*([0-9]{1,3})%\s*,\s*([0-9]{1,3})%(?:\s*,\s*(0|0?\.\d+|1))?\s*\)/i);
+  if (m){
+    let h = (parseInt(m[1],10) % 360 + 360) % 360;
+    let s = Math.max(0, Math.min(100, parseInt(m[2],10))) / 100;
+    let l = Math.max(0, Math.min(100, parseInt(m[3],10))) / 100;
+    const c = (1 - Math.abs(2*l - 1)) * s;
+    const x = c * (1 - Math.abs(((h/60) % 2) - 1));
+    const m0 = l - c/2;
+    let r1=0,g1=0,b1=0;
+    if (0<=h && h<60)   { r1=c; g1=x; b1=0; }
+    else if (60<=h && h<120){ r1=x; g1=c; b1=0; }
+    else if (120<=h && h<180){ r1=0; g1=c; b1=x; }
+    else if (180<=h && h<240){ r1=0; g1=x; b1=c; }
+    else if (240<=h && h<300){ r1=x; g1=0; b1=c; }
+    else { r1=c; g1=0; b1=x; }
+    const r = Math.round((r1 + m0) * 255);
+    const g = Math.round((g1 + m0) * 255);
+    const b = Math.round((b1 + m0) * 255);
+    const toHex = n => n.toString(16).padStart(2,"0");
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  }
+
+  // 命名色
   const norm = word.replace(/(颜色?|色|カラー)$/i, "").toLowerCase();
   return COLOR_MAP[norm] || COLOR_MAP[word] || null;
 }
 
+/* =========================
+ * 类别别名
+ * ========================= */
 const CAT_ALIASES = {
   warning:     ["警告","注意","warning","黄标","黄色类"],
   prohibition: ["禁止","不可","prohibition","止まれ","停止"],
@@ -240,27 +303,27 @@ function applyThemeNaturalLanguage(text, changes){
 function applyBackgroundColorNaturalLanguage(text, changes){
   let changed = false;
 
-  // —— 斜纹空隙（“白地/隙間”）——（更宽松：允许“变成/にして”等介词）
+  // —— 斜纹空隙（“白地/隙間”）——（允许“を/变成/にして”等）
   let mRing = text.match(
-    /(白色部分|白色区域|空隙|缝隙|間隙|斜纹间隙|斜線間隙|斜線の隙間|斜纹的空白|斜線の白地|白地|白い部分|隙間|すき間|スキマ|ストライプの隙間|縞の隙間|縞のすき間|縞の間).*?(?:改成|改为|变成|に|にして|に変更|にする|で)?\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i
+    /(白色部分|白色区域|空隙|缝隙|間隙|斜纹间隙|斜線間隙|斜線の隙間|斜纹的空白|斜線の白地|白地|白い部分|隙間|すき間|スキマ|ストライプの隙間|縞の隙間|縞のすき間|縞の間).*?(?:改成|改为|变成|に|にして|に変更|にする|で|を)?\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i
   );
   if (mRing){
     const col = resolveColor(mRing[2]);
     if (col){ SETTINGS.colors.ringBg = col; changed = true; changes && changes.push(`斜線の隙間色：${col}`); }
   }
 
-  // —— 整张背景 ——（更宽松）
+  // —— 整张背景 ——（允许 を）
   let mBg = text.match(
-    /(背景|背景色|バックグラウンド|background|canvas).*?(?:改成|改为|变成|に|にして|に変更|にする|で)?\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i
+    /(背景|背景色|バックグラウンド|background|canvas).*?(?:改成|改为|变成|に|にして|に変更|にする|で|を)?\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i
   );
   if (mBg){
     const col = resolveColor(mBg[2]);
     if (col){ SETTINGS.colors.canvasBg = col; changed = true; changes && changes.push(`背景色：${col}`); }
   }
 
-  // —— 面板背景 ——（更宽松）
+  // —— 面板背景 ——（允许 を）
   let mPanel = text.match(
-    /(面板|面盤|パネル|內側|内側|内容面|面の背景|panel).*?(?:改成|改为|变成|に|にして|に変更|にする|で)?\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i
+    /(面板|面盤|パネル|內側|内側|内容面|面の背景|panel).*?(?:改成|改为|变成|に|にして|に変更|にする|で|を)?\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i
   );
   if (mPanel){
     const col = resolveColor(mPanel[2]);
@@ -442,7 +505,7 @@ function drawStripeRingAroundRect(ctx, w, h, color, innerRect, radius){
   outer.addPath(inner);
   ctx.clip(outer, "evenodd");
 
-  // 先把“斜纹空隙”区域铺底色（只在环形区域内）
+  // 将“斜纹空隙”区域铺底色（只在环形区域内）
   ctx.fillStyle = SETTINGS.colors.ringBg || "#fff";
   ctx.fillRect(0, 0, w, h);
 
@@ -691,7 +754,7 @@ function applyStyleEdits(text, spec, changes){
   // 主题配色（仅当前海报）
   const themeChanged = applyThemeNaturalLanguage(text, changes);
 
-  // 背景/面板/斜纹空隙 颜色（更宽松正则）
+  // 背景/面板/斜纹空隙 颜色（更宽松正则，含“を”）
   const bgColorChanged = applyBackgroundColorNaturalLanguage(text, changes);
 
   // 枠线：想要枠线（未指定类型）→ 默认实线
@@ -723,7 +786,7 @@ function applyStyleEdits(text, spec, changes){
   if (/(边框|框|枠).*(斜纹|斜線|ストライプ)/i.test(text)){ spec.border = "stripes"; changes.push("枠：斜線"); changed = true; }
   if (/(边框|框|枠).*(实线|實線|実線|ソリッド)/i.test(text)){ spec.border = "solid"; changes.push("枠：実線"); changed = true; }
 
-  // —— 枠（斜線/実線）颜色覆盖 ——（更宽松：支持“变成/にして”）
+  // —— 枠（斜線/実線）颜色覆盖 ——（支持“变成/にして/を”）
   let bcMatch =
     text.match(/(斜纹|斜線|ストライプ|枠線|枠).*?(?:颜色|色|カラー|color).*?(?:改成|改为|变成|にして|に変更|にする|で|は|を|に)?\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i) ||
     text.match(/(斜纹|斜線|ストライプ|枠線|枠).*?(?:を|は|に|にして|に変更|にする|で|改成|改为|变成)\s*([#A-Za-z0-9一-龥ぁ-んァ-ンー]+)/i);
@@ -732,7 +795,7 @@ function applyStyleEdits(text, spec, changes){
     const col = resolveColor(bcMatch[2]);
     if (col){
       SETTINGS.borderColorOverride = col;
-      changes.push(`枠（斜線）カラー：${col}`);
+      changes.push(`枠（斜線/実線）カラー：${col}`);
       changed = true;
     }
   }
@@ -901,10 +964,11 @@ function resetRuntimeSettings(){
 function parseJSONLoose(t){ if(!t) return null; const m=t.match(/```(?:json)?\s*([\s\S]*?)```/i); const body=m?m[1]:t; try{return JSON.parse(body);}catch{return null;} }
 
 async function generatePoster(userText){
-  // 1) 完成/结束：立即还原初始状态
+  // 1) 完成/结束：立即还原初始状态 + 开新会话
   if (FINALIZE_RE.test(userText)) {
     resetRuntimeSettings();
     addMsg("bot", "ポスターの仕上げを確認しました。設定を初期状態に戻しました。次回の新規作成は既定から開始します。");
+    startNewSession("finalize");   // ★ 新会话
     return;
   }
 
@@ -941,7 +1005,6 @@ async function generatePoster(userText){
       drawPoster(edited.spec);
       return;
     } else {
-      // 是编辑意图但没有有效变化 → 不要新建，停在当前张
       addMsg("bot", formatEditReply([]));
       return;
     }
@@ -951,6 +1014,7 @@ async function generatePoster(userText){
   if (isNewPosterRequest(userText, lastSpec)) {
     resetRuntimeSettings();
     addMsg("bot", "前のポスターを完了として扱い、設定を初期状態に戻しました。新しい内容で作成します。");
+    startNewSession("new");        // ★ 新会话
   }
 
   // 4) 新建生成：先重置当前主题与颜色
@@ -1079,6 +1143,263 @@ function redrawLast(){ if(lastSpec) drawPoster(lastSpec); }
 createControlPanel();
 
 /* =========================
+ * 指令履歴（增强版）：搜索/筛选/固定/删除/复制/持久化/会话过滤
+ * ========================= */
+const HISTORY_KEY = "poster_history_v1";
+const MAX_HISTORY = 200;
+
+let USER_HISTORY = [];        // {id, text, kind, timeMs, target, sessionId, pinned}
+let CURRENT_SESSION_ID = 1;   // 当前“海报会话”编号（新建/完成/导出后+1）
+
+function loadHistory(){
+  try{
+    const raw = localStorage.getItem(HISTORY_KEY);
+    if (!raw) return;
+    const o = JSON.parse(raw);
+    if (Array.isArray(o.items)) USER_HISTORY = o.items;
+    if (typeof o.sessionLast === "number") CURRENT_SESSION_ID = Math.max(1, o.sessionLast);
+  }catch(e){ console.warn("loadHistory failed:", e); }
+}
+function saveHistory(){
+  try{
+    localStorage.setItem(HISTORY_KEY, JSON.stringify({
+      items: USER_HISTORY.slice(0, MAX_HISTORY),
+      sessionLast: CURRENT_SESSION_ID
+    }));
+  }catch(e){ console.warn("saveHistory failed:", e); }
+}
+function startNewSession(reason="new"){
+  CURRENT_SESSION_ID += 1;
+  saveHistory();
+}
+
+function classifyCommand(text){
+  if (!lastSpec) return "新規";
+  if (isNewPosterRequest(text, lastSpec)) return "新規";
+  if (looksLikeEdit(text)) return "編集";
+  return "生成";
+}
+function two(n){ return (n<10 ? "0"+n : ""+n); }
+function timeLabel(ms){
+  const d = new Date(ms);
+  return `${two(d.getHours())}:${two(d.getMinutes())}`;
+}
+
+function pushHistory(text){
+  const item = {
+    id: Date.now() + Math.random(),
+    text,
+    kind: classifyCommand(text),
+    timeMs: Date.now(),
+    target: (lastSpec?.jp?.title || lastSpec?.en?.title || lastSpec?.zh?.title || "—"),
+    sessionId: CURRENT_SESSION_ID,
+    pinned: false
+  };
+  USER_HISTORY.unshift(item);
+
+  // 裁剪（保留置顶）
+  const pinned = USER_HISTORY.filter(x=>x.pinned);
+  const normal = USER_HISTORY.filter(x=>!x.pinned).slice(0, MAX_HISTORY - pinned.length);
+  USER_HISTORY = [...pinned, ...normal];
+
+  saveHistory();
+  renderHistory && renderHistory();
+}
+
+function createHistoryPanelEnhanced(){
+  loadHistory();
+
+  // 左上：📜按钮
+  const btn = document.createElement("button");
+  btn.textContent = "📜";
+  btn.title = "指令履歴";
+  btn.style.cssText = `
+    position: fixed; top: 16px; left: 16px; z-index: 1000;
+    width: 56px; height: 56px; border-radius: 28px; border: none;
+    background: #111827; color: #fff; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 26px; line-height: 1;
+    box-shadow: 0 6px 18px rgba(17,24,39,.35);
+  `;
+  document.body.appendChild(btn);
+
+  // 面板
+  const wrap = document.createElement("div");
+  wrap.style.cssText = `
+    position: fixed; top: 84px; left: 16px; z-index: 999;
+    width: 340px; max-height: 80vh; padding: 12px; border-radius: 12px;
+    background: rgba(255,255,255,.98); border: 1px solid #e6e8eb;
+    font: 13px/1.4 system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif;
+    box-shadow: 0 10px 24px rgba(0,0,0,.12); display: none;
+  `;
+  wrap.innerHTML = `
+    <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;margin-bottom:8px;">
+      <strong style="font-size:14px;">指令履歴</strong>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <span id="hist-sess" style="font-size:11px;color:#6b7280;">セッション: <b id="hist-sess-id"></b></span>
+        <button id="hist-export" style="padding:6px 10px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;cursor:pointer;">エクスポート</button>
+        <button id="hist-clear"  style="padding:6px 10px;border:1px solid #fee2e2;border-radius:8px;background:#fff1f2;color:#b91c1c;cursor:pointer;">クリア</button>
+        <button id="hist-close"  style="padding:6px 10px;border:1px solid #e5e7eb;border-radius:8px;background:#f3f4f6;cursor:pointer;">✕</button>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">
+      <input id="hist-q" placeholder="検索（例：背景 / 斜線 / 黄色）" 
+             style="flex:1 1 auto;padding:6px 10px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;">
+    </div>
+
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">
+      <button data-filter="all" class="hist-tab hist-on">全部</button>
+      <button data-filter="session" class="hist-tab">当前会话</button>
+      <button data-filter="new" class="hist-tab">新規</button>
+      <button data-filter="edit" class="hist-tab">編集</button>
+      <style>
+        .hist-tab{padding:6px 10px;border:1px solid #e5e7eb;border-radius:999px;background:#fff;cursor:pointer;font-size:12px;}
+        .hist-on{background:#0ea5e9;color:#fff;border-color:#0ea5e9;}
+        .hist-pin{color:#f59e0b;margin-left:6px;cursor:pointer;}
+        .hist-btn{padding:4px 8px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;cursor:pointer;font-size:12px;}
+        .hist-btn-danger{border-color:#fecaca;background:#fff1f2;color:#b91c1c;}
+        .hist-row{border:1px solid #e5e7eb;border-radius:10px;padding:8px 10px;margin-bottom:8px;background:#fff;display:flex;gap:8px;align-items:flex-start;justify-content:space-between;}
+        .hist-kind{display:inline-block;padding:2px 8px;margin-right:6px;border-radius:999px;border:1px solid; font-weight:600;font-size:11px;}
+        .hist-kind-new{background:#ecfdf5;color:#065f46;border-color:#a7f3d0;}
+        .hist-kind-edit{background:#eff6ff;color:#1e40af;border-color:#bfdbfe;}
+        .hist-kind-gen{background:#f3f4f6;color:#374151;border-color:#e5e7eb;}
+        .hist-text{font-size:13px;color:#111827;margin-top:4px;word-break:break-word;}
+        .hist-meta{font-size:11px;color:#6b7280;margin-top:4px;}
+      </style>
+    </div>
+
+    <div id="hist-list" style="overflow:auto; max-height: calc(80vh - 180px);"></div>
+  `;
+  document.body.appendChild(wrap);
+
+  const listEl = wrap.querySelector("#hist-list");
+  const qEl    = wrap.querySelector("#hist-q");
+  const sessIdEl = wrap.querySelector("#hist-sess-id");
+  const tabs   = wrap.querySelectorAll(".hist-tab");
+
+  function setSessLabel(){ sessIdEl.textContent = `#${CURRENT_SESSION_ID}`; }
+
+  function activeFilter(){ const a=[...tabs].find(b=>b.classList.contains("hist-on")); return a?.dataset?.filter || "all"; }
+  tabs.forEach(b=> b.onclick = ()=>{ tabs.forEach(x=>x.classList.remove("hist-on")); b.classList.add("hist-on"); renderHistory(); });
+
+  qEl.addEventListener("input", ()=> renderHistory());
+
+  window.renderHistory = function renderHistory(){
+    setSessLabel();
+    const q = qEl.value.trim().toLowerCase();
+    const filter = activeFilter();
+
+    // 排序：置顶优先 → 时间新
+    const items = USER_HISTORY
+      .slice()
+      .sort((a,b)=> (b.pinned - a.pinned) || (b.timeMs - a.timeMs))
+      .filter(it => {
+        if (filter === "session" && it.sessionId !== CURRENT_SESSION_ID) return false;
+        if (filter === "new"     && it.kind !== "新規") return false;
+        if (filter === "edit"    && it.kind !== "編集") return false;
+        if (q && !(`${it.text} ${it.target}`.toLowerCase().includes(q))) return false;
+        return true;
+      });
+
+    listEl.innerHTML = "";
+    items.forEach(item=>{
+      const row  = document.createElement("div"); row.className = "hist-row";
+      const left = document.createElement("div"); left.style.cssText = "flex:1 1 auto; min-width:0;";
+      const right= document.createElement("div"); right.style.cssText= "display:flex; flex-direction:column; gap:6px;";
+
+      const kind = document.createElement("span");
+      kind.className = "hist-kind " + (item.kind==="新規"?"hist-kind-new":item.kind==="編集"?"hist-kind-edit":"hist-kind-gen");
+      kind.textContent = item.kind;
+
+      const pin = document.createElement("span");
+      pin.className = "hist-pin"; pin.title = item.pinned ? "取消固定" : "固定到顶部";
+      pin.textContent = item.pinned ? "★" : "☆";
+      pin.onclick = ()=>{
+        item.pinned = !item.pinned;
+        saveHistory(); renderHistory();
+      };
+
+      const time = document.createElement("span");
+      time.textContent = ` ${timeLabel(item.timeMs)} ・S#${item.sessionId}`;
+      time.style.cssText = "font-size:11px;color:#6b7280;margin-left:4px;";
+
+      const txt = document.createElement("div");
+      txt.className = "hist-text";
+      txt.textContent = item.text;
+      txt.title = "クリックで入力欄に挿入";
+      txt.style.cursor = "text";
+      txt.onclick = ()=> { promptEl.value = item.text; promptEl.focus(); };
+
+      const tgt = document.createElement("div");
+      tgt.className = "hist-meta";
+      tgt.textContent = item.target ? `対象：${item.target}` : "対象：—";
+
+      left.appendChild(kind); left.appendChild(pin); left.appendChild(time);
+      left.appendChild(txt);  left.appendChild(tgt);
+
+      const btnApply  = document.createElement("button");
+      btnApply.className = "hist-btn"; btnApply.textContent = "適用";
+      btnApply.title = "この指令を実行";
+      btnApply.onclick = ()=> generatePoster(item.text);
+
+      const btnCopy   = document.createElement("button");
+      btnCopy.className = "hist-btn"; btnCopy.textContent = "コピー";
+      btnCopy.onclick = async ()=> {
+        try{ await navigator.clipboard.writeText(item.text); btnCopy.textContent="✓ コピー"; setTimeout(()=>btnCopy.textContent="コピー", 900); }
+        catch{ /* ignore */ }
+      };
+
+      const btnDel    = document.createElement("button");
+      btnDel.className = "hist-btn hist-btn-danger"; btnDel.textContent = "削除";
+      btnDel.onclick = ()=> {
+        USER_HISTORY = USER_HISTORY.filter(x=>x.id!==item.id);
+        saveHistory(); renderHistory();
+      };
+
+      right.appendChild(btnApply);
+      right.appendChild(btnCopy);
+      right.appendChild(btnDel);
+
+      row.appendChild(left);
+      row.appendChild(right);
+      listEl.appendChild(row);
+    });
+
+    if (items.length === 0){
+      const empty = document.createElement("div");
+      empty.style.cssText = "padding:10px;color:#6b7280;font-size:12px;border:1px dashed #e5e7eb;border-radius:10px;text-align:center;";
+      empty.textContent = "該当する履歴はありません。";
+      listEl.appendChild(empty);
+    }
+  };
+
+  // 开关/操作
+  btn.onclick = ()=> { wrap.style.display = (wrap.style.display==="none" ? "block" : "none"); renderHistory(); };
+  wrap.querySelector("#hist-close").onclick  = ()=> wrap.style.display = "none";
+  wrap.querySelector("#hist-clear").onclick  = ()=>{
+    if (!confirm("履歴をすべて削除しますか？")) return;
+    USER_HISTORY.length = 0; saveHistory(); renderHistory();
+  };
+  wrap.querySelector("#hist-export").onclick = ()=>{
+    const lines = USER_HISTORY
+      .slice()
+      .sort((a,b)=> a.timeMs - b.timeMs)
+      .map(h => `[${new Date(h.timeMs).toLocaleString()}]\tS#${h.sessionId}\t${h.kind}\t${h.text}`);
+    const blob = new Blob([lines.join("\n")], {type:"text/plain;charset=utf-8"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "指令履歴.txt"; a.click();
+    setTimeout(()=> URL.revokeObjectURL(url), 500);
+  };
+
+  // 首次渲染
+  renderHistory();
+}
+
+// 启动增强版履历
+createHistoryPanelEnhanced();
+
+/* =========================
  * 输入/下载/键盘（IME 友好；Enter 送信 / Shift+Enter 换行）
  * ========================= */
 let composing = false;
@@ -1093,16 +1414,17 @@ promptEl.addEventListener("keydown", e => {
 });
 sendBtn.onclick = () => {
   const t = promptEl.value.trim();
-  if (t) { addMsg("user", t); generatePoster(t); }
+  if (t) { addMsg("user", t); pushHistory(t); generatePoster(t); } // 记录履历
   promptEl.value = ""; // 发送后清空输入栏，不保留已发文本
 };
 dlBtn.onclick = () => {
   const url = canvas.toDataURL("image/png");
   const a = document.createElement("a"); a.href = url; a.download = "poster.png"; a.click();
 
-  // 导出 = 完成 → 自动恢复初始
+  // 导出 = 完成 → 自动恢复初始 + 新会话
   resetRuntimeSettings();
   addMsg("bot", "書き出しが完了しました。設定を初期状態に戻しました。次のポスターは既定の配色・サイズから始まります。");
+  startNewSession("export");
 };
 
 /* =========================
