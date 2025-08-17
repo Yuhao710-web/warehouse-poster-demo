@@ -1,5 +1,5 @@
 /* =========================
- * WebLLM 初始化
+ * WebLLM 初期化
  * ========================= */
 let engine;
 (async () => {
@@ -30,28 +30,26 @@ function addMsg(role, text){
 }
 
 /* =========================
- * 配置（放大字体 & 自适应范围）
+ * 設定（フォント拡大 & 自動調整）
  * ========================= */
 const SETTINGS = {
-  canvas: { width: 1404, height: 993 },      // A3横向≈150dpi
-  bandHeight: 160,                            // 顶部色带高度
-  marginX: 60,                                // 文本左右留白
-  stripe: {                                   // 斜线警示边框参数（默认值，会被 UI 覆盖）
-    width: 22,
-    gap: 28,
-    frame: 16,
-    ringInset: 56                             // 环形条纹内缩距离（确保不遮文字）
+  canvas: { width: 1404, height: 993 },   // A3横 ≈150dpi
+  bandHeight: 160,
+  marginX: 60,
+  stripe: {
+    width: 22, gap: 28, frame: 16,
+    ringPadding: 40   // 文字ブロックの周囲に確保する余白（斜線の内側パディング）
   },
-  solidBorderWidth: 14,                       // 实线边框线宽
+  solidBorderWidth: 14,
   fonts: {
-    jpTitle:       "800 90px 'Noto Sans JP'",
-    jpSubtitle:    "600 46px 'Noto Sans JP'",
-    jpNote:        "400 34px 'Noto Sans JP'",
-    enTitle:       "700 42px 'Noto Sans JP'",
-    enSubtitle:    "italic 36px 'Noto Sans JP'",
-    enNote:        "400 32px 'Noto Sans JP'",
-    zhTitle:       "700 38px 'Noto Sans JP'",
-    zhBody:        "400 34px 'Noto Sans JP'"
+    jpTitle:    "800 90px 'Noto Sans JP'",
+    jpSubtitle: "600 46px 'Noto Sans JP'",
+    jpNote:     "400 34px 'Noto Sans JP'",
+    enTitle:    "700 42px 'Noto Sans JP'",
+    enSubtitle: "italic 36px 'Noto Sans JP'",
+    enNote:     "400 32px 'Noto Sans JP'",
+    zhTitle:    "700 38px 'Noto Sans JP'",
+    zhBody:     "400 34px 'Noto Sans JP'"
   },
   lineHeights: {
     jpTitle: 72, jpSubtitle: 56, jpNote: 48,
@@ -59,37 +57,32 @@ const SETTINGS = {
     zhTitle: 46, zhBody: 42
   },
   paragraphSpacing: 14,
-  autoFit: {                                  // 标题字号自适应范围（放大）
+  autoFit: {
     jpTitle: { minPx: 42, maxPx: 100, step: 2 },
-    enTitle: { minPx: 34, maxPx: 56, step: 2 },
-    zhTitle: { minPx: 34, maxPx: 54, step: 2 }
+    enTitle: { minPx: 34, maxPx: 56,  step: 2 },
+    zhTitle: { minPx: 34, maxPx: 54,  step: 2 }
   },
-  ui: {                                       // UI 面板控制的动态参数
-    fontScale: 1.0,
-    paragraphSpacing: 14,
-    stripeWidth: 22,
-    stripeGap: 28
-  }
+  ui: { fontScale: 1.0, paragraphSpacing: 14, stripeWidth: 22, stripeGap: 28 }
 };
 
 /* =========================
- * 安全类别配色
+ * カテゴリ配色
  * ========================= */
 const SAFETY = {
-  warning:     { base: "#F9A900" }, // 注意・警告（黄）
-  prohibition: { base: "#C62828" }, // 禁止・停止（赤）
-  mandatory:   { base: "#005387" }, // 指示・義務（青）
-  safe:        { base: "#237F52" }, // 安全・避難（緑）
-  fire:        { base: "#C62828" }, // 防火（赤）
-  neutral:     { base: "#2B2B2C" }  // 中立（黑/灰）
+  warning:     { base: "#F9A900" },
+  prohibition: { base: "#C62828" },
+  mandatory:   { base: "#005387" },
+  safe:        { base: "#237F52" },
+  fire:        { base: "#C62828" },
+  neutral:     { base: "#2B2B2C" }
 };
 
 /* =========================
- * LLM 系统提示（自由输入→结构化JSON）
+ * LLM システムプロンプト（JSON 返却）
  * ========================= */
 const SYSTEM_PROMPT = `
 あなたは倉庫安全ポスターのコピーライター兼DTP担当です。
-ユーザーの要望を倉庫現場の掲示ポスターに最適化し、必ず次のJSONのみで返答してください（前後に説明や余計な文字を含めない）。
+ユーザーの要望を現場向けの掲示ポスターに整え、次のJSONのみで返答してください（説明文や余計な文字は不要）。
 
 {
   "jp": { "title":"", "subtitle":"", "note":"" },
@@ -102,63 +95,70 @@ const SYSTEM_PROMPT = `
 }
 
 必須:
-- jp.title は1行で簡潔（例: 通行注意 / 仮置き禁止 / 非常口）
-- 内容に応じた category を選択（注意=warning, 禁止=prohibition, 安全/出口=safe, 指示=mandatory 等）
-- border は 注意/禁止→stripes 推奨、情報/区域→solid 推奨、不要なら none
-- EN/ZH は可能な限り補完（なければ空文字で可）
+- jp.title は1行で簡潔（例: 通行注意 / 仮置き禁止 / 非常口 / 体温測定 / 衝突注意）
+- category は内容に応じて適切に（注意=warning, 禁止=prohibition, 指示=mandatory, 安全= safe）
+- border は 注意/禁止→stripes を推奨、区域/情報→solid、不要なら none
+- EN/ZH も可能な範囲で補完（なければ空文字で可）
 `;
 
 /* =========================
- * 关键词预设 & 类别矫正
- * - 新增：体温 / 健康提示 → mandatory（蓝）
- * - 既有：非常口 → safe（绿）；安全/安全第一 → warning（黄）
+ * キーワード・プリセット & 補正
  * ========================= */
 const PRESETS = [
-  // 体温/健康
+  // 体温/健康 → mandatory
   {
     match: /(体温|検温|測温|测温|temperature\s*check|health\s*check|注意身体|体調|体调|发烧|fever)/i,
     spec: {
       jp: { title: "体温測定", note: "体調に変化があれば すぐに報告してください" },
       en: { subtitle: "Have you taken your temperature?", note: "Please report any changes immediately" },
       zh: { note: "是否已测量体温？有异常请立即报告" },
-      category: "mandatory", // 蓝色
-      border: "stripes",
-      size: "A3横",
-      icon: "thermometer"
+      category: "mandatory", border: "stripes", size: "A3横", icon: "thermometer"
     }
   },
-  // 非常口
+  // 非常口 → safe
   {
     match: /(非常口|emergency\s*exit|避難口)/i,
     spec: {
       jp: { title: "非常口", subtitle: "前に物を置かない" },
       en: { title: "Emergency exit", subtitle: "Do not place items here" },
       zh: { note: "紧急出口前禁止放置物品" },
-      category: "safe",   // 绿色
-      border: "solid",    // 实线
-      size: "A3横",
-      icon: "exit"
+      category: "safe", border: "solid", size: "A3横", icon: "exit"
     }
   },
-  // 安全/安全第一
+  // 衝突 → warning
+  {
+    match: /(衝突事故|衝突|冲突|collision|接触事故|ぶつかり)/i,
+    spec: {
+      jp: { title: "衝突注意" },
+      en: { subtitle: "Watch for collisions" },
+      zh: { note: "注意冲突" },
+      category: "warning", border: "stripes", size: "A3横", icon: "collision"
+    }
+  },
+  // 仮置き → prohibition
+  {
+    match: /(仮置き|临时放置|temporary\s*placement)/i,
+    spec: {
+      jp: { title: "仮置き禁止", subtitle: "通路・ラインを確保" },
+      en: { subtitle: "No temporary placement" },
+      zh: { note: "禁止临时堆放" },
+      category: "prohibition", border: "stripes", size: "A3横", icon: "no-box"
+    }
+  },
+  // 安全第一 → warning（黄色）
   {
     match: /(安全(第一)?|safety( first)?)/i,
     spec: {
       jp: { title: "安全第一", subtitle: "指差呼称・周囲確認" },
       en: { title: "Safety First" },
       zh: { note: "安全第一，谨慎作业" },
-      category: "warning", // 黄色
-      border: "solid",
-      size: "A3横",
-      icon: "helmet"
+      category: "warning", border: "solid", size: "A3横", icon: "helmet"
     }
   }
 ];
 
 function matchPreset(userText){
-  for (const p of PRESETS) {
-    if (p.match.test(userText)) return structuredClone(p.spec);
-  }
+  for (const p of PRESETS) { if (p.match.test(userText)) return structuredClone(p.spec); }
   return null;
 }
 function mergeWithPreset(llmSpec, preset){
@@ -175,88 +175,118 @@ function mergeWithPreset(llmSpec, preset){
 }
 
 /* =========================
- * 文本工具：字号自适应 + 换行
+ * テキスト計測/改行/自動フィット
  * ========================= */
-function withFontSize(fontSpec, px){
-  return fontSpec.replace(/(?<=\s)(\d+(?:\.\d+)?)px(?=\s*['"]?)/, `${px}px`);
-}
-function canFitSingleLine(text, fontSpec, maxWidth){
-  ctx.font = fontSpec;
-  return ctx.measureText(text).width <= maxWidth;
-}
-/** 单行自适应：考虑 fontScale，把可用宽度缩小为 maxWidth/scale，再把字号乘回 scale 输出 */
+function withFontSize(fontSpec, px){ return fontSpec.replace(/(?<=\s)(\d+(?:\.\d+)?)px(?=\s*['"]?)/, `${px}px`); }
+function canFitSingleLine(text, fontSpec, maxWidth){ ctx.font = fontSpec; return ctx.measureText(text).width <= maxWidth; }
 function fitSingleLine(text, baseFont, maxWidth, {minPx=28, maxPx=80, step=2}={}, scale=1){
   const available = maxWidth / Math.max(scale, 0.1);
   for(let px=maxPx; px>=minPx; px-=step){
     const f = withFontSize(baseFont, px);
-    if (canFitSingleLine(text, f, available)) {
-      return { font: withFontSize(baseFont, Math.round(px*scale)), size: Math.round(px*scale), wrapped: false };
-    }
+    if (canFitSingleLine(text, f, available)) return { font: withFontSize(baseFont, Math.round(px*scale)), size: Math.round(px*scale), wrapped: false };
   }
-  // 放不下：按最小字号 * scale，再换行
   const minScaled = Math.round(minPx * scale);
   return { font: withFontSize(baseFont, minScaled), size: minScaled, wrapped: true };
 }
-function wrapLines(text, font, maxWidth) {
+function wrapLines(text, font, maxWidth){
   if (!text) return [];
   ctx.font = font;
-  const words = text.split(/\s+/);
-  const lines = [];
+  const words = text.split(/\s+/), lines = [];
   let line = "";
-  for (let i=0; i<words.length; i++){
-    const test = line ? line + " " + words[i] : words[i];
-    if (ctx.measureText(test).width > maxWidth && line) {
-      lines.push(line);
-      line = words[i];
-    } else {
-      line = test;
-    }
+  for (let i=0;i<words.length;i++){
+    const test = line ? line+" "+words[i] : words[i];
+    if (ctx.measureText(test).width > maxWidth && line) { lines.push(line); line = words[i]; }
+    else line = test;
   }
   if (line) lines.push(line);
   return lines;
 }
 
 /* =========================
- * 边框：斜线警示（环形） & 实线
- * - 斜纹只在四周“环形区域”绘制，不进入文字区域
+ * 斜線ボーダー（文字ブロックを避けて“環状”に描く）
  * ========================= */
-function drawStripeBorder(ctx, w, h, color){
-  const stripeW = SETTINGS.ui.stripeWidth;
-  const gap     = SETTINGS.ui.stripeGap;
-  const frame   = SETTINGS.stripe.frame;
-  const inset   = SETTINGS.stripe.ringInset;
-
+function drawStripeRingAroundContent(ctx, w, h, color, innerRect){
+  const stripeW = SETTINGS.ui.stripeWidth, gap = SETTINGS.ui.stripeGap, frame = SETTINGS.stripe.frame;
   ctx.save();
-
-  // 1) 先建立“环形”裁剪区域：外矩形 - 内矩形（evenodd）
+  // 1) 外⇄内の“リング”をクリップ（evenodd）
   const path = new Path2D();
-  path.rect(10, 10, w - 20, h - 20); // 外框
-  path.rect(10 + inset, 10 + inset, w - 20 - 2*inset, h - 20 - 2*inset); // 内框
+  path.rect(10, 10, w - 20, h - 20); // outer
+  path.rect(innerRect.x, innerRect.y, innerRect.w, innerRect.h); // inner
   ctx.clip(path, "evenodd");
-
-  // 2) 在环形区域内绘制斜纹
-  ctx.strokeStyle = color;
-  ctx.lineWidth = stripeW;
+  // 2) 斜線を描画
+  ctx.strokeStyle = color; ctx.lineWidth = stripeW;
   const diag = Math.sqrt(w*w + h*h);
-  ctx.rotate(-Math.PI / 6);
-  for (let x = -diag; x < diag * 2; x += stripeW + gap) {
-    ctx.beginPath();
-    ctx.moveTo(x, -diag);
-    ctx.lineTo(x, diag * 2);
-    ctx.stroke();
+  ctx.rotate(-Math.PI/6);
+  for(let x=-diag; x<diag*2; x+=stripeW+gap){
+    ctx.beginPath(); ctx.moveTo(x, -diag); ctx.lineTo(x, diag*2); ctx.stroke();
   }
   ctx.restore();
-
-  // 3) 外框描边（增强边界）
+  // 3) 外枠
   ctx.save();
-  ctx.lineWidth = frame;
-  ctx.strokeStyle = color;
-  ctx.strokeRect(10, 10, w - 20, h - 20);
+  ctx.lineWidth = frame; ctx.strokeStyle = color;
+  ctx.strokeRect(10,10,w-20,h-20);
   ctx.restore();
 }
 
 /* =========================
- * 主绘制：整体水平+垂直居中
+ * レイアウト計算（ブロック & バウンディング）
+ * ========================= */
+function layoutBlocks(spec){
+  const W = SETTINGS.canvas.width, H = SETTINGS.canvas.height;
+  const maxWidth = W - SETTINGS.marginX * 2;
+  const scale = Math.max(SETTINGS.ui.fontScale, 0.1);
+  const paraGap = Math.round(SETTINGS.ui.paragraphSpacing);
+  const blocks=[];
+
+  function addBlock(lines, font, color, lh){
+    if(lines && lines.length) blocks.push({lines, font, color, lineHeight: Math.round(lh*scale)});
+  }
+  function scaleFont(fontSpec){
+    const m = fontSpec.match(/(\d+(?:\.\d+)?)px/);
+    const px = m ? parseFloat(m[1]) : 32;
+    return withFontSize(fontSpec, Math.round(px*scale));
+  }
+
+  const jp=spec.jp||{}, en=spec.en||{}, zh=spec.zh||{};
+
+  if (jp.title){
+    const fit = fitSingleLine(jp.title, SETTINGS.fonts.jpTitle, maxWidth, SETTINGS.autoFit.jpTitle, scale);
+    const lines = fit.wrapped ? wrapLines(jp.title, fit.font, maxWidth) : [jp.title];
+    addBlock(lines, fit.font, "#111", SETTINGS.lineHeights.jpTitle);
+  }
+  if (jp.subtitle) addBlock(wrapLines(jp.subtitle, scaleFont(SETTINGS.fonts.jpSubtitle), maxWidth), scaleFont(SETTINGS.fonts.jpSubtitle), "#333", SETTINGS.lineHeights.jpSubtitle);
+  if (jp.note)     addBlock(wrapLines(jp.note,     scaleFont(SETTINGS.fonts.jpNote),     maxWidth), scaleFont(SETTINGS.fonts.jpNote),     "#444", SETTINGS.lineHeights.jpNote);
+
+  if (en.title){
+    const fit = fitSingleLine(en.title, SETTINGS.fonts.enTitle, maxWidth, SETTINGS.autoFit.enTitle, scale);
+    const lines = fit.wrapped ? wrapLines(en.title, fit.font, maxWidth) : [en.title];
+    addBlock(lines, fit.font, "#1a1a1a", SETTINGS.lineHeights.enTitle);
+  }
+  if (en.subtitle) addBlock(wrapLines(en.subtitle, scaleFont(SETTINGS.fonts.enSubtitle), maxWidth), scaleFont(SETTINGS.fonts.enSubtitle), "#1a1a1a", SETTINGS.lineHeights.enSubtitle);
+  if (en.note)     addBlock(wrapLines(en.note,     scaleFont(SETTINGS.fonts.enNote),     maxWidth), scaleFont(SETTINGS.fonts.enNote),     "#222",    SETTINGS.lineHeights.enNote);
+
+  if (zh.title){
+    const fit = fitSingleLine(zh.title, SETTINGS.fonts.zhTitle, maxWidth, SETTINGS.autoFit.zhTitle, scale);
+    const lines = fit.wrapped ? wrapLines(zh.title, fit.font, maxWidth) : [zh.title];
+    addBlock(lines, fit.font, "#222", SETTINGS.lineHeights.zhTitle);
+  }
+  if (zh.subtitle) addBlock(wrapLines(zh.subtitle, scaleFont(SETTINGS.fonts.zhBody), maxWidth), scaleFont(SETTINGS.fonts.zhBody), "#222", SETTINGS.lineHeights.zhBody);
+  if (zh.note)     addBlock(wrapLines(zh.note,     scaleFont(SETTINGS.fonts.zhBody), maxWidth), scaleFont(SETTINGS.fonts.zhBody), "#222", SETTINGS.lineHeights.zhBody);
+
+  // 総高・最大幅（実測）を算出
+  let totalH = 0, maxLineW = 0;
+  for(const b of blocks){
+    ctx.font = b.font;
+    for(const ln of b.lines){ maxLineW = Math.max(maxLineW, ctx.measureText(ln).width); }
+    totalH += b.lines.length*b.lineHeight + SETTINGS.ui.paragraphSpacing;
+  }
+  totalH -= SETTINGS.ui.paragraphSpacing; // 最後の段落は間隔なし
+
+  return { blocks, totalH, maxLineW, maxWidth, scale, paraGap };
+}
+
+/* =========================
+ * 描画（斜線は文字ブロックの外側のみ）
  * ========================= */
 let lastSpec = null;
 
@@ -265,114 +295,60 @@ function drawPoster(spec){
   const W = SETTINGS.canvas.width, H = SETTINGS.canvas.height;
   canvas.width = W; canvas.height = H;
 
-  // 背景 & 顶部色带（按类别颜色）
-  const band = SAFETY[spec.category]?.base || "#999";
+  // 背景
   ctx.fillStyle = "#fff"; ctx.fillRect(0,0,W,H);
-  ctx.fillStyle = band;   ctx.fillRect(0,0,W,SETTINGS.bandHeight);
 
-  // 边框（条纹/实线围绕）
+  // 先にレイアウトを計算（斜線の内側矩形に使う）
+  const L = layoutBlocks(spec);
+  const centerX = W/2;
+  const topY = (H + SETTINGS.bandHeight)/2 - L.totalH/2;
+  const innerW = Math.min(L.maxLineW + SETTINGS.stripe.ringPadding*2, W - 120);
+  const innerX = centerX - innerW/2;
+  const innerY = Math.max(topY - SETTINGS.stripe.ringPadding, SETTINGS.bandHeight + 12);
+  const innerH = Math.min(L.totalH + SETTINGS.stripe.ringPadding*2, H - innerY - 24);
+
+  // 斜線リング（文字ブロックを避ける）
+  const bandColor = SAFETY[spec.category]?.base || "#999";
   if (spec.border === "stripes") {
-    drawStripeBorder(ctx, W, H, band);
+    drawStripeRingAroundContent(ctx, W, H, bandColor, { x: innerX, y: innerY, w: innerW, h: innerH });
   } else if (spec.border === "solid") {
-    ctx.strokeStyle = band; ctx.lineWidth = SETTINGS.solidBorderWidth;
+    ctx.strokeStyle = bandColor; ctx.lineWidth = SETTINGS.solidBorderWidth;
     ctx.strokeRect(10,10,W-20,H-20);
   }
 
-  // 文本准备（标题先单行自适应；全部块居中）
-  const maxWidth = W - SETTINGS.marginX * 2;
-  const centerX  = W / 2;
-  const scale    = Math.max(SETTINGS.ui.fontScale, 0.1);
-  const paraGap  = Math.round(SETTINGS.ui.paragraphSpacing);
-  const blocks = [];
-  function addBlock(lines, font, color, lh){
-    if(lines && lines.length) blocks.push({lines, font, color, lineHeight: Math.round(lh * scale)});
-  }
+  // 上部色帯は最後に重ねて描く（トップの斜線を隠す）
+  ctx.fillStyle = bandColor;
+  ctx.fillRect(0,0,W,SETTINGS.bandHeight);
 
-  const jp=spec.jp||{}, en=spec.en||{}, zh=spec.zh||{};
-
-  // JP Title 单行自适应→必要时换行（考虑 scale）
-  if (jp.title) {
-    const fit = fitSingleLine(jp.title, SETTINGS.fonts.jpTitle, maxWidth, SETTINGS.autoFit.jpTitle, scale);
-    const lines = fit.wrapped ? wrapLines(jp.title, fit.font, maxWidth) : [jp.title];
-    addBlock(lines, fit.font, "#111", SETTINGS.lineHeights.jpTitle);
-  }
-
-  // 其余文本：把字号整体 * scale 再换行
-  function scaleFont(fontSpec){ // 把指定字体的 px * scale
-    const m = fontSpec.match(/(\d+(?:\.\d+)?)px/);
-    const px = m ? parseFloat(m[1]) : 32;
-    return withFontSize(fontSpec, Math.round(px * scale));
-  }
-
-  if (jp.subtitle) addBlock(wrapLines(jp.subtitle, scaleFont(SETTINGS.fonts.jpSubtitle), maxWidth), scaleFont(SETTINGS.fonts.jpSubtitle), "#333", SETTINGS.lineHeights.jpSubtitle);
-  if (jp.note)     addBlock(wrapLines(jp.note,     scaleFont(SETTINGS.fonts.jpNote),     maxWidth), scaleFont(SETTINGS.fonts.jpNote),     "#444", SETTINGS.lineHeights.jpNote);
-
-  if (en.title) {
-    const fit = fitSingleLine(en.title, SETTINGS.fonts.enTitle, maxWidth, SETTINGS.autoFit.enTitle, scale);
-    const lines = fit.wrapped ? wrapLines(en.title, fit.font, maxWidth) : [en.title];
-    addBlock(lines, fit.font, "#1a1a1a", SETTINGS.lineHeights.enTitle);
-  }
-  if (en.subtitle) addBlock(wrapLines(en.subtitle, scaleFont(SETTINGS.fonts.enSubtitle), maxWidth), scaleFont(SETTINGS.fonts.enSubtitle), "#1a1a1a", SETTINGS.lineHeights.enSubtitle);
-  if (en.note)     addBlock(wrapLines(en.note,     scaleFont(SETTINGS.fonts.enNote),     maxWidth), scaleFont(SETTINGS.fonts.enNote),     "#222",    SETTINGS.lineHeights.enNote);
-
-  if (zh.title) {
-    const fit = fitSingleLine(zh.title, SETTINGS.fonts.zhTitle, maxWidth, SETTINGS.autoFit.zhTitle, scale);
-    const lines = fit.wrapped ? wrapLines(zh.title, fit.font, maxWidth) : [zh.title];
-    addBlock(lines, fit.font, "#222", SETTINGS.lineHeights.zhTitle);
-  }
-  if (zh.subtitle) addBlock(wrapLines(zh.subtitle, scaleFont(SETTINGS.fonts.zhBody), maxWidth), scaleFont(SETTINGS.fonts.zhBody), "#222", SETTINGS.lineHeights.zhBody);
-  if (zh.note)     addBlock(wrapLines(zh.note,     scaleFont(SETTINGS.fonts.zhBody), maxWidth), scaleFont(SETTINGS.fonts.zhBody), "#222", SETTINGS.lineHeights.zhBody);
-
-  // 计算总高度并垂直居中
-  let totalH = 0;
-  for(const b of blocks){ totalH += b.lines.length*b.lineHeight + paraGap; }
-  totalH -= paraGap; // 最后一个块不加间距
-  let y = (H + SETTINGS.bandHeight)/2 - totalH/2;
-
-  // 绘制（中心对齐）
+  // 文字描画（中央寄せ）
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
-  for(const b of blocks){
-    ctx.font = b.font;
-    ctx.fillStyle = b.color;
-    for(const ln of b.lines){
-      ctx.fillText(ln, centerX, y);
-      y += b.lineHeight;
-    }
-    y += paraGap;
+  let y = topY;
+  for(const b of L.blocks){
+    ctx.font = b.font; ctx.fillStyle = b.color;
+    for(const ln of b.lines){ ctx.fillText(ln, centerX, y); y += b.lineHeight; }
+    y += L.paraGap;
   }
 }
 
 /* =========================
- * 自然语言回复（更拟人化）
+ * 日本語での自然な返信
  * ========================= */
-function formatBotReply(spec, userText){
-  const catMap = {
-    warning: "黄色警示",
-    prohibition: "红色禁止",
-    mandatory: "蓝色指示",
-    safe: "绿色安全",
-    fire: "防火",
-    neutral: "中性"
-  };
-  const jp = spec.jp || {}, en = spec.en || {}, zh = spec.zh || {};
-  const parts = [];
-  if (jp.title) parts.push(`主标题（日文）：「${jp.title}」${jp.subtitle ? `（${jp.subtitle}）` : ""}`);
-  if (en.title || en.subtitle) parts.push(`英文：${[en.title, en.subtitle].filter(Boolean).join(" / ")}`);
-  if (zh.title || zh.subtitle || zh.note) parts.push(`中文：${[zh.title, zh.subtitle, zh.note].filter(Boolean).join(" / ")}`);
-  const style = `风格：${catMap[spec.category] || spec.category}，边框「${spec.border === "stripes" ? "斜纹" : spec.border === "solid" ? "实线" : "无"}」。`;
-  return `好的，我按照你的描述做了一张海报：\n- ${parts.join("\n- ")}\n- ${style}\n右上角齿轮可以继续微调字体大小、段落间距和斜纹粗细/间距～`;
+function formatBotReply(spec){
+  const catMap = { warning:"黄色の警告", prohibition:"赤の禁止", mandatory:"青の指示", safe:"緑の安全", fire:"防火", neutral:"中立" };
+  const jp=spec.jp||{}, en=spec.en||{}, zh=spec.zh||{};
+  const pieces=[];
+  if(jp.title) pieces.push(`見出し：「${jp.title}」${jp.subtitle?`（${jp.subtitle}）`: ""}`);
+  if(en.title || en.subtitle) pieces.push(`英語：${[en.title,en.subtitle].filter(Boolean).join(" / ")}`);
+  if(zh.title || zh.subtitle || zh.note) pieces.push(`中国語：${[zh.title,zh.subtitle,zh.note].filter(Boolean).join(" / ")}`);
+  const style = `スタイルは ${catMap[spec.category]||spec.category}、枠は「${spec.border==="stripes"?"斜線":"実線"/* none の場合は実線の代わりに */}」です。`;
+  return `ポスターを作成しました。\n- ${pieces.join("\n- ")}\n- ${style}\n右上のギアからフォント・行間・斜線の太さ/間隔を微調整できます。`;
 }
 
 /* =========================
- * JSON 解析 & 生成流程（含预设与矫正）
+ * JSON 解析 & 生成（プリセット/補正込み）
  * ========================= */
-function parseJSONLoose(text){
-  if (!text) return null;
-  const m = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const body = m ? m[1] : text;
-  try { return JSON.parse(body); } catch { return null; }
-}
+function parseJSONLoose(text){ if(!text) return null; const m=text.match(/```(?:json)?\s*([\s\S]*?)```/i); const body=m?m[1]:text; try{return JSON.parse(body);}catch{return null;} }
 
 async function generatePoster(userText){
   addMsg("user", userText);
@@ -380,81 +356,59 @@ async function generatePoster(userText){
 
   if (engine) {
     const reply = await engine.chat.completions.create({
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user",   content: userText }
-      ],
+      messages: [{ role:"system", content: SYSTEM_PROMPT }, { role:"user", content: userText }],
       max_tokens: 500
     });
     const raw = reply.choices?.[0]?.message?.content || "";
     data = parseJSONLoose(raw);
   }
 
-  // 预设匹配（体温/健康；非常口；安全第一）
+  // プリセット適用
   const preset = matchPreset(userText);
   if (preset) data = mergeWithPreset(data, preset);
 
-  // 类别兜底矫正
+  // 追加の補正（安全網）
   if (/(体温|検温|測温|测温|temperature\s*check|health\s*check|注意身体|体調|体调|发烧|fever)/i.test(userText)) {
-    data = data || {};
-    data.category = "mandatory";
-    data.border = data.border || "stripes";
+    data = data || {}; data.category="mandatory"; data.border = data.border || "stripes";
   }
   if (/(非常口|emergency\s*exit|避難口)/i.test(userText)) {
-    data = data || {};
-    data.category = "safe";
-    data.border = data.border || "solid";
-    data.jp = data.jp || {}; data.en = data.en || {}; data.zh = data.zh || {};
-    data.jp.title     = data.jp.title     || "非常口";
-    data.jp.subtitle  = data.jp.subtitle  || "前に物を置かない";
-    data.en.title     = data.en.title     || "Emergency exit";
-    data.en.subtitle  = data.en.subtitle  || "Do not place items here";
-    data.zh.note      = data.zh.note      || "紧急出口前禁止放置物品";
+    data = data || {}; data.category="safe"; data.border = data.border || "solid";
+    data.jp = data.jp || {}; data.jp.title = data.jp.title || "非常口"; data.jp.subtitle = data.jp.subtitle || "前に物を置かない";
+    data.en = data.en || {}; data.en.title = data.en.title || "Emergency exit"; data.en.subtitle = data.en.subtitle || "Do not place items here";
+    data.zh = data.zh || {}; data.zh.note = data.zh.note || "紧急出口前禁止放置物品";
   }
-  if (/(^|[^日])安全(第一)?([^一]|$)|safety( first)?/i.test(userText) && !/(非常口|emergency\s*exit|避難口)/i.test(userText)) {
-    data = data || {};
-    data.category = "warning";
-    data.border = data.border || "solid";
-    data.jp = data.jp || {};
-    data.jp.title = data.jp.title || "安全第一";
+  if (/(衝突事故|衝突|冲突|collision|接触事故|ぶつかり)/i.test(userText)) {
+    data = data || {}; data.category="warning"; data.border = data.border || "stripes";
+    data.jp = data.jp || {}; data.jp.title = data.jp.title || "衝突注意";
+  }
+  if (/(仮置き|临时放置|temporary\s*placement)/i.test(userText)) {
+    data = data || {}; data.category="prohibition"; data.border = data.border || "stripes";
+    data.jp = data.jp || {}; data.jp.title = data.jp.title || "仮置き禁止";
   }
 
-  // 回退默认
+  // フォールバック
   if (!data) {
-    data = {
-      jp: { title: "通行注意", subtitle: "走行車両あり" },
-      en: { subtitle: "Watch for vehicles" },
-      zh: { note: "行人应小心行驶车辆" },
-      category: "warning",
-      border: "stripes",
-      size: "A3横",
-      icon: "forklift"
-    };
+    data = { jp:{title:"通行注意", subtitle:"走行車両あり"}, en:{subtitle:"Watch for vehicles"}, zh:{note:"行人应小心行驶车辆"}, category:"warning", border:"stripes", size:"A3横", icon:"forklift" };
   }
 
-  // 保护字段
   const spec = {
-    jp: data.jp || {},
-    en: data.en || {},
-    zh: data.zh || {},
+    jp: data.jp || {}, en: data.en || {}, zh: data.zh || {},
     category: (["warning","prohibition","mandatory","safe","fire","neutral"].includes(data.category) ? data.category : "warning"),
     border: (["stripes","solid","none"].includes(data.border) ? data.border : "solid"),
-    size: data.size || "A3横",
-    icon: data.icon || ""
+    size: data.size || "A3横", icon: data.icon || ""
   };
 
-  addMsg("bot", formatBotReply(spec, userText));
+  addMsg("bot", formatBotReply(spec));
   drawPoster(spec);
 }
 
 /* =========================
- * 可折叠控制面板（右上角）— 齿轮更大
+ * 折りたたみ式コントロールパネル（大きいギア）
  * ========================= */
 function createControlPanel(){
-  // Toggle 按钮（更大、图标更显眼）
   const btn = document.createElement("button");
   btn.textContent = "⚙︎";
-  btn.title = "显示/隐藏参数面板";
+  btn.title = "設定";
   btn.style.cssText = `
     position: fixed; top: 16px; right: 16px; z-index: 1000;
     width: 56px; height: 56px; border-radius: 28px; border: none;
@@ -465,7 +419,6 @@ function createControlPanel(){
   `;
   document.body.appendChild(btn);
 
-  // 面板
   const panel = document.createElement("div");
   panel.style.cssText = `
     position: fixed; top: 84px; right: 16px; z-index: 999;
@@ -476,78 +429,66 @@ function createControlPanel(){
   `;
   panel.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-      <strong>参数调节</strong>
+      <strong>表示設定</strong>
       <span id="ui-close" style="cursor:pointer;padding:4px 8px;border-radius:6px;background:#f3f4f6;">✕</span>
     </div>
 
-    <label>字体缩放：<span id="v-font">${SETTINGS.ui.fontScale.toFixed(2)}</span></label>
+    <label>フォント倍率：<span id="v-font">${SETTINGS.ui.fontScale.toFixed(2)}</span></label>
     <input id="ui-font" type="range" min="0.6" max="1.5" step="0.05" value="${SETTINGS.ui.fontScale}" style="width:100%;margin:6px 0 10px;">
 
-    <label>段落间距：<span id="v-para">${SETTINGS.ui.paragraphSpacing}</span></label>
+    <label>段落スペース：<span id="v-para">${SETTINGS.ui.paragraphSpacing}</span></label>
     <input id="ui-para" type="range" min="6" max="40" step="2" value="${SETTINGS.ui.paragraphSpacing}" style="width:100%;margin:6px 0 10px;">
 
-    <label>斜纹宽度：<span id="v-sw">${SETTINGS.ui.stripeWidth}</span></label>
+    <label>斜線の太さ：<span id="v-sw">${SETTINGS.ui.stripeWidth}</span></label>
     <input id="ui-stripeW" type="range" min="10" max="50" step="2" value="${SETTINGS.ui.stripeWidth}" style="width:100%;margin:6px 0 10px;">
 
-    <label>斜纹间距：<span id="v-sg">${SETTINGS.ui.stripeGap}</span></label>
+    <label>斜線の間隔：<span id="v-sg">${SETTINGS.ui.stripeGap}</span></label>
     <input id="ui-stripeG" type="range" min="10" max="60" step="2" value="${SETTINGS.ui.stripeGap}" style="width:100%;margin:6px 0 4px;">
   `;
   document.body.appendChild(panel);
 
-  // 交互
   btn.onclick = () => { panel.style.display = panel.style.display === "none" ? "block" : "none"; };
   panel.querySelector("#ui-close").onclick = () => { panel.style.display = "none"; };
 
-  const fontInput = panel.querySelector("#ui-font");
-  const paraInput = panel.querySelector("#ui-para");
-  const swInput   = panel.querySelector("#ui-stripeW");
-  const sgInput   = panel.querySelector("#ui-stripeG");
-
-  const vFont = panel.querySelector("#v-font");
-  const vPara = panel.querySelector("#v-para");
-  const vSW   = panel.querySelector("#v-sw");
-  const vSG   = panel.querySelector("#v-sg");
-
-  fontInput.oninput = e => {
-    SETTINGS.ui.fontScale = parseFloat(e.target.value);
-    vFont.textContent = SETTINGS.ui.fontScale.toFixed(2);
-    redrawLast();
-  };
-  paraInput.oninput = e => {
-    SETTINGS.ui.paragraphSpacing = parseInt(e.target.value, 10);
-    vPara.textContent = SETTINGS.ui.paragraphSpacing;
-    redrawLast();
-  };
-  swInput.oninput = e => {
-    SETTINGS.ui.stripeWidth = parseInt(e.target.value, 10);
-    vSW.textContent = SETTINGS.ui.stripeWidth;
-    redrawLast();
-  };
-  sgInput.oninput = e => {
-    SETTINGS.ui.stripeGap = parseInt(e.target.value, 10);
-    vSG.textContent = SETTINGS.ui.stripeGap;
-    redrawLast();
-  };
+  const vFont = panel.querySelector("#v-font"), vPara = panel.querySelector("#v-para"),
+        vSW = panel.querySelector("#v-sw"), vSG = panel.querySelector("#v-sg");
+  panel.querySelector("#ui-font").oninput    = e => { SETTINGS.ui.fontScale        = parseFloat(e.target.value); vFont.textContent = SETTINGS.ui.fontScale.toFixed(2); redrawLast(); };
+  panel.querySelector("#ui-para").oninput    = e => { SETTINGS.ui.paragraphSpacing = parseInt(e.target.value,10); vPara.textContent = SETTINGS.ui.paragraphSpacing; redrawLast(); };
+  panel.querySelector("#ui-stripeW").oninput = e => { SETTINGS.ui.stripeWidth      = parseInt(e.target.value,10); vSW.textContent   = SETTINGS.ui.stripeWidth;      redrawLast(); };
+  panel.querySelector("#ui-stripeG").oninput = e => { SETTINGS.ui.stripeGap        = parseInt(e.target.value,10); vSG.textContent   = SETTINGS.ui.stripeGap;        redrawLast(); };
 }
 function redrawLast(){ if(lastSpec) drawPoster(lastSpec); }
 createControlPanel();
 
 /* =========================
- * 输入/下载/初始海报
+ * 送信動作（Enter 判定：IME中は送信しない）
  * ========================= */
+let composing = false;
+promptEl.addEventListener("compositionstart", () => composing = true);
+promptEl.addEventListener("compositionend",   () => composing = false);
+promptEl.addEventListener("keydown", e => {
+  if (e.key === "Enter") {
+    if (e.isComposing || composing) return;          // 変換中の Enter は送信しない
+    if (e.ctrlKey || e.metaKey) { e.preventDefault(); sendBtn.click(); } // Ctrl/⌘+Enter で送信
+    else { e.preventDefault(); sendBtn.click(); }    // 通常 Enter でも送信（必要ならここを変えてもOK）
+  }
+});
+
 sendBtn.onclick = () => {
   const t = promptEl.value.trim();
   if (t) generatePoster(t);
 };
-promptEl.addEventListener("keydown", e => { if (e.key === "Enter") sendBtn.click(); });
-
 dlBtn.onclick = () => {
   const url = canvas.toDataURL("image/png");
   const a = document.createElement("a");
   a.href = url; a.download = "poster.png"; a.click();
 };
 
-// 初始海报（演示）
+/* =========================
+ * 初期サンプル
+ * ========================= */
+function formatBotReply(spec){ /* 上で定義済み。下のダミー呼び出し用 */ return `ポスターを作成しました。`; }
+
 drawPoster({
   jp: { title: "安全第一", subtitle: "指差呼称・周囲確認・事故ゼロへ" },
   en: { subtitle: "Safety First" },
